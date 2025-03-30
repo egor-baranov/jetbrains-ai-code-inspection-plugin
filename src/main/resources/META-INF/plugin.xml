@@ -9,7 +9,27 @@
     <resource-bundle>messages.MyBundle</resource-bundle>
 
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow factoryClass="com.github.egorbaranov.jetbrainsaicodeinspectionplugin.toolWindow.MyToolWindowFactory" id="MyToolWindow"/>
-        <postStartupActivity implementation="com.github.egorbaranov.jetbrainsaicodeinspectionplugin.startup.MyProjectActivity" />
+        <projectService serviceImplementation="com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context.PsiFileRelationService"/>
+
+        <toolWindow
+                factoryClass="com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.toolWindow.CodeInspectionWindowFactory"
+                id="AI Code Inspection"
+                anchor="right"
+                icon="AllIcons.Actions.EnableNewUi"
+        />
+        <postStartupActivity
+                implementation="com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.startup.CodeInspectionProjectActivity"/>
+
+        <codeInsight.inlayProviderFactory
+                implementation="com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.hint.ComplexityInlayHintsProviderFactory"/>
+        <codeInsight.lineMarkerProvider language="Kotlin"
+                                        implementationClass="com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.marker.ComplexityLineMarkerProvider"/>
     </extensions>
+    <application-components>
+        <component>
+            <implementation-class>
+                com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.configuration.PluginConfiguration
+            </implementation-class>
+        </component>
+    </application-components>
 </idea-plugin>
