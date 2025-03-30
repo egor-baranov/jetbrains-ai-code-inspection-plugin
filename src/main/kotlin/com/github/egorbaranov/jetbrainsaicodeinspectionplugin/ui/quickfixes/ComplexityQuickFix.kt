@@ -1,21 +1,16 @@
 package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.quickfixes
 
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.OpenAIClient
-import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.OpenAIKeyStorage
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.inspections.CodeContextCollector
 import com.intellij.codeInspection.LocalQuickFix
 import com.intellij.codeInspection.ProblemDescriptor
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.psi.PsiElement
 import java.awt.BorderLayout
-import javax.swing.JComponent
-import javax.swing.JPanel
-import javax.swing.JProgressBar
-import javax.swing.JScrollPane
-import javax.swing.JTextArea
+import javax.swing.*
 
 class ComplexityQuickFix(private val element: PsiElement) : LocalQuickFix {
 
@@ -45,7 +40,7 @@ class ComplexityQuickFix(private val element: PsiElement) : LocalQuickFix {
         val context = CodeContextCollector(element).collect()
 
         dialog.updateProgress("Generating suggestions...", 40)
-        val suggestions = OpenAIClient(getApiKey()).getSuggestions(context)
+        val suggestions = OpenAIClient().getSuggestions(context)
 
         ApplicationManager.getApplication().invokeLater {
             showSuggestions(suggestions)
@@ -72,12 +67,6 @@ class ComplexityQuickFix(private val element: PsiElement) : LocalQuickFix {
 
     private fun handleError(dialog: RefactorDialog, e: Exception) {
         dialog.updateProgress("Error: ${e.message}", 100)
-    }
-
-    private fun getApiKey(): String {
-        return ApplicationManager.getApplication()
-            .getService(OpenAIKeyStorage::class.java)
-            .apiKey
     }
 
     private class RefactorDialog(project: Project) : DialogWrapper(project) {

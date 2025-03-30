@@ -1,5 +1,6 @@
 package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.hint
 
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.OpenAIClient
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context.PsiFileRelationService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.psi.ElementUsagesUtil
 import com.intellij.codeInsight.hints.FactoryInlayHintsCollector
@@ -11,12 +12,15 @@ import com.intellij.diff.DiffManager
 import com.intellij.diff.requests.SimpleDiffRequest
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.editor.BlockInlayPriority
+import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.colors.EditorFontType
 import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.psi.ElementDescriptionUtil
+import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.util.PsiUtilCore
 import com.intellij.psi.util.elementType
@@ -127,17 +131,18 @@ class ComplexityInlayHintsCollector(editor: Editor) : FactoryInlayHintsCollector
             preferredSize = Dimension(400, 600)
 
             // Create editor with diff
-            val originalContent = element.text ?: ""
-            val modifiedContent = """
-// Optimized ${element.text}
-            fun ${element.text}() {
-                println("Fixed implementation")
-            }
-        """.trimIndent()
+            val originalContent = element.containingFile.text
             val contentFactory = DiffContentFactory.getInstance()
             val language = PsiUtilCore.getLanguageAtOffset(element.containingFile, element.textOffset)
             val fileType = language.associatedFileType ?: PlainTextFileType.INSTANCE
             val contentLeft = contentFactory.create(originalContent, fileType)
+
+            println("analysing file: $element")
+            val text = element.containingFile.text
+            val modifiedContent = OpenAIClient().request(
+                "Analyze this file for potential fixes and return refactored file: $text"
+            )
+            println("analysis for file: $element is $modifiedContent")
             val contentRight = contentFactory.create(modifiedContent, fileType)
 
             val diffRequest = SimpleDiffRequest("Code Changes", contentLeft, contentRight, "Original", "Modified")
@@ -153,6 +158,11 @@ class ComplexityInlayHintsCollector(editor: Editor) : FactoryInlayHintsCollector
 
                     addActionListener {
                         handleFixAction(element)
+                        WriteCommandAction.runWriteCommandAction(project) {
+                            val document: Document = PsiDocumentManager.getInstance(project).getDocument(element.containingFile)!!
+                            document.setText(modifiedContent)
+                            PsiDocumentManager.getInstance(project).commitDocument(document)
+                        }
                         SwingUtilities.getWindowAncestor(this)?.dispose()
                     }
                 }
