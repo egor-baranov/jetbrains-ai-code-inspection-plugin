@@ -9,7 +9,7 @@ import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.vfs.VirtualFile
 
 @Service(Service.Level.PROJECT)
-class MyProjectService(project: Project) {
+class ProjectService(project: Project) {
 
     init {
         thisLogger().info(MyBundle.message("projectService", project.name))

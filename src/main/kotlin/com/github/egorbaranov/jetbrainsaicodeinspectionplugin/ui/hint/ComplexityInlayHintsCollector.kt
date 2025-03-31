@@ -2,6 +2,7 @@ package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.hint
 
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.OpenAIClient
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context.PsiFileRelationService
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.psi.ElementUsagesUtil
 import com.intellij.codeInsight.hints.FactoryInlayHintsCollector
 import com.intellij.codeInsight.hints.InlayHintsSink
@@ -43,6 +44,7 @@ class ComplexityInlayHintsCollector(editor: Editor) : FactoryInlayHintsCollector
     override fun collect(element: PsiElement, editor: Editor, sink: InlayHintsSink): Boolean {
         val elementType = element.elementType.toString()
         val usages = ElementUsagesUtil.getUsages(element)
+        
 
         if (usages.isNotEmpty()) {
             println("Usages for element=$element: ${usages.map { it.containingFile.name }.toSet()}")
@@ -138,11 +140,12 @@ class ComplexityInlayHintsCollector(editor: Editor) : FactoryInlayHintsCollector
             val contentLeft = contentFactory.create(originalContent, fileType)
 
             println("analysing file: $element")
-            val text = element.containingFile.text
-            val modifiedContent = OpenAIClient().request(
-                "Analyze this file for potential fixes and return refactored file: $text"
+            val virtualFile = element.containingFile.virtualFile
+            val analyzeResults = OpenAIClient.getInstance(project).analyzeFiles(
+                files = listOf(InspectionService.CodeFile(virtualFile.url, element.containingFile.text))
             )
-            println("analysis for file: $element is $modifiedContent")
+
+            val modifiedContent = analyzeResults.content ?: originalContent
             val contentRight = contentFactory.create(modifiedContent, fileType)
 
             val diffRequest = SimpleDiffRequest("Code Changes", contentLeft, contentRight, "Original", "Modified")

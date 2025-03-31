@@ -1,7 +1,5 @@
 package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.quickfixes
 
-import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.OpenAIClient
-import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.inspections.CodeContextCollector
 import com.intellij.codeInspection.LocalQuickFix
 import com.intellij.codeInspection.ProblemDescriptor
 import com.intellij.openapi.application.ApplicationManager
@@ -37,15 +35,8 @@ class ComplexityQuickFix(private val element: PsiElement) : LocalQuickFix {
 
     private fun processRefactoring(project: Project, dialog: RefactorDialog) {
         dialog.updateProgress("Analyzing code structure...", 20)
-        val context = CodeContextCollector(element).collect()
 
         dialog.updateProgress("Generating suggestions...", 40)
-        val suggestions = OpenAIClient().getSuggestions(context)
-
-        ApplicationManager.getApplication().invokeLater {
-            showSuggestions(suggestions)
-            dialog.close(0)
-        }
     }
 
     private fun showSuggestions(suggestions: String) {

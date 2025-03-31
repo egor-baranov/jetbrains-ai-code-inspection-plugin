@@ -1,6 +1,7 @@
 package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.toolWindow
 
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context.PsiFileRelationService
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService
 import com.intellij.diff.DiffContentFactory
 import com.intellij.diff.DiffManager
 import com.intellij.diff.DiffRequestPanel
@@ -15,6 +16,7 @@ import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.findPsiFile
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
@@ -38,7 +40,7 @@ class CodeInspectionToolWindow(
 ) {
     private var currentPsiFile: PsiFile? = null
     private val contentPanel = JBPanel<JBPanel<*>>(VerticalLayout(JBUI.scale(8))).apply {
-        border = JBUI.Borders.empty(0, 8)
+        border = JBUI.Borders.empty(8)
     }
     private val disposer = Disposer.newDisposable()
     private val project = toolWindow.project
@@ -85,6 +87,14 @@ class CodeInspectionToolWindow(
                     }
                 }
             })
+
+        project.messageBus.connect(disposer).subscribe(
+            InspectionService.INSPECTION_CHANGE_TOPIC,
+            object : InspectionService.InspectionChangeListener {
+                override fun inspectionsChanged() {
+                    updateContent()
+                }
+            })
     }
 
     private fun updateCurrentFile(vFile: VirtualFile) {
@@ -109,12 +119,15 @@ class CodeInspectionToolWindow(
         contentPanel.removeAll()
 
         try {
-            val relations = PsiFileRelationService.getInstance(project).getRelations(project)
-            relations.forEach { (source, targets) ->
-                if (source.isValid) {
-                    contentPanel.add(createRelationsPanel(source, targets.filter { it.isValid }))
-                    contentPanel.add(Box.createVerticalStrut(JBUI.scale(12)))
-                }
+            val inspections = InspectionService.getInstance(project).inspectionFiles
+            inspections.forEach { (inspection, affectedFiles) ->
+                contentPanel.add(
+                    createRelationsPanel(
+                        inspection = inspection,
+                        affectedFiles = affectedFiles
+                    )
+                )
+                contentPanel.add(Box.createVerticalStrut(JBUI.scale(8)))
             }
         } catch (e: Throwable) {
             thisLogger().error("Failed to update content", e)
@@ -124,18 +137,23 @@ class CodeInspectionToolWindow(
         contentPanel.repaint()
     }
 
-    private fun createRelationsPanel(currentFile: PsiFile, relatedFiles: List<PsiFile>): JComponent {
+    private fun createRelationsPanel(
+        inspection: InspectionService.Inspection,
+        affectedFiles: List<InspectionService.CodeFile>
+    ): JComponent {
         return createCollapsiblePanel(
             InspectionItem(
-                title = currentFile,
-                details = relatedFiles
+                inspection = inspection,
+                affectedFiles = affectedFiles
             )
         ).apply {
             (getComponent(1) as JComponent).components.forEachIndexed { index, component ->
                 if (component is JPanel) {
                     component.addMouseListener(object : MouseAdapter() {
                         override fun mouseClicked(e: MouseEvent?) {
-                            relatedFiles.getOrNull(index)?.let { navigateToFile(it) }
+                            affectedFiles.getOrNull(index)?.let {
+//                                navigateToFile(it)
+                            }
                         }
                     })
                 }
@@ -163,17 +181,18 @@ class CodeInspectionToolWindow(
                     JBUI.Borders.empty(4)
                 )
 
-                val titleLabel = JBLabel("${item.title.name} (${item.details.size})").apply {
-                    icon = item.title.fileType.icon
+                val titleLabel = JBLabel("${item.inspection.description} (${item.affectedFiles.size})").apply {
+//                    icon = item.title.fileType.icon
                     font = JBUI.Fonts.label().deriveFont(14f)
                 }
                 val toggleLabel = createToggleButton()
+                toggleLabel.border = JBUI.Borders.emptyRight(8)
 
-                val header = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), JBUI.scale(4))).apply {
+                val header = JBPanel<JBPanel<*>>(BorderLayout()).apply {
                     border = JBUI.Borders.empty(4)
                     isOpaque = false
-                    add(titleLabel)
-                    add(toggleLabel)  // Now index 1
+                    add(toggleLabel, BorderLayout.WEST)
+                    add(titleLabel, BorderLayout.CENTER)
                 }
 
                 // Content
@@ -182,8 +201,24 @@ class CodeInspectionToolWindow(
                     isVisible = false
                     isOpaque = false
 
-                    item.details.forEach { detail ->
-                        add(createDetailItem(detail))
+                    val textArea = JTextArea(item.inspection.fixPrompt).apply {
+                        lineWrap = true
+                        wrapStyleWord = true
+                        isEditable = false
+                        background = JBColor.PanelBackground.brighter()
+                        border = BorderFactory.createEmptyBorder()
+                    }
+
+                    add(Box.createVerticalStrut(8))
+                    add(textArea)
+                    add(Box.createVerticalStrut(8))
+
+                    item.affectedFiles.forEach { detail ->
+                        val psiFile = detail.virtualFile()?.findPsiFile(project)
+                        println("Detail=$detail, virtualFile=${detail.virtualFile()}, psiFile=${psiFile}")
+                        if (psiFile != null) {
+                            add(createDetailItem(psiFile))
+                        }
                         add(Box.createVerticalStrut(JBUI.scale(4)))
                     }
 
@@ -281,6 +316,9 @@ class CodeInspectionToolWindow(
                     JBUI.Borders.empty(4)
                 )
 
+                val diffPanelComponent = buildDiffPanel(psiFile).component
+                diffPanelComponent.isVisible = false
+
                 // Open file button
                 val openButton = JButton("Open").apply {
                     cursor = Cursor(Cursor.HAND_CURSOR)
@@ -298,22 +336,39 @@ class CodeInspectionToolWindow(
                     }
                 }
 
+                val expandButton = JButton("Expand").apply {
+                    cursor = Cursor(Cursor.HAND_CURSOR)
+                    icon = getToggleIcon(diffPanelComponent.isVisible)
+                    toolTipText = "Expand diff for ${psiFile.name}"
+                    border = JBUI.Borders.empty(4)
+                    addActionListener {
+                        diffPanelComponent.isVisible = !diffPanelComponent.isVisible
+                        this.icon = getToggleIcon(diffPanelComponent.isVisible)
+                        this.text = if (diffPanelComponent.isVisible) "Collapse" else "Expand"
+                        revalidate()
+                        repaint()
+                    }
+                }
+
                 val labelPanel = JBPanel<JBPanel<*>>(BorderLayout()).apply {
                     isOpaque = false
                     add(JBLabel(psiFile.name).apply {
                         border = JBUI.Borders.empty(4)
                         icon = psiFile.fileType.icon
                     }, BorderLayout.WEST)
-                    add(openButton, BorderLayout.EAST)
+
+                    add(JPanel(FlowLayout(FlowLayout.RIGHT)).also {
+                        it.add(expandButton)
+                        it.add(openButton)
+                    }, BorderLayout.EAST)
                 }
 
                 val centerPanel = object : JBPanel<JBPanel<*>>(VerticalLayout(JBUI.scale(4))) {
                     init {
                         add(labelPanel)
-                        add(buildDiffPanel(psiFile).component)
+                        add(diffPanelComponent)
                     }
                 }
-
                 // Layout components
                 add(centerPanel, BorderLayout.CENTER)
             }
@@ -349,7 +404,7 @@ class CodeInspectionToolWindow(
     }
 
     private data class InspectionItem(
-        val title: PsiFile,
-        val details: List<PsiFile>
+        val inspection: InspectionService.Inspection,
+        val affectedFiles: List<InspectionService.CodeFile>
     )
 }
