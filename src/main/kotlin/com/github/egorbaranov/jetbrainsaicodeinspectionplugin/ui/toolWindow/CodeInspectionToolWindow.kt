@@ -1,24 +1,26 @@
 package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.toolWindow
 
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.OpenAIClient
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.task.RelationsAnalyzerTask
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context.PsiFileRelationService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService
 import com.intellij.diff.DiffContentFactory
 import com.intellij.diff.DiffManager
-import com.intellij.diff.DiffRequestPanel
 import com.intellij.diff.requests.SimpleDiffRequest
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.fileTypes.PlainTextFileType
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.findPsiFile
 import com.intellij.openapi.wm.ToolWindow
-import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
 import com.intellij.psi.util.PsiUtilCore
@@ -105,6 +107,24 @@ class CodeInspectionToolWindow(
         }
     }
 
+    private fun analyzeRelationsWithProgress(project: Project) {
+        RelationsAnalyzerTask.execute(
+            project = project,
+            onProgressUpdate = { status ->
+                // Update UI with current status
+                println("Analyze progress: $status")
+            },
+            onComplete = {
+                // Handle completion
+                println("Analysis completed successfully")
+            },
+            onError = { error ->
+                // Handle errors
+                println("Handled error: $error")
+            }
+        )
+    }
+
     private fun updateContent() {
         // Always check if we're already on EDT
         if (!ApplicationManager.getApplication().isDispatchThread) {
@@ -117,6 +137,31 @@ class CodeInspectionToolWindow(
 
         // Clear and rebuild content safely
         contentPanel.removeAll()
+
+        val runIndexingButton = JButton("Run Indexing").also {
+            it.addMouseListener(
+                object : MouseAdapter() {
+                    override fun mouseClicked(e: MouseEvent?) {
+                        println(
+                            "Project file graph: ${
+                                PsiFileRelationService.getInstance(project).getRelations(project).map {
+                                    "${it.key.name} : ${it.value.size}"
+                                }
+                            }"
+                        )
+
+                        analyzeRelationsWithProgress(project)
+                    }
+                }
+            )
+        }
+        val stopIndexingButton = JButton("Stop Indexing")
+        contentPanel.add(
+            JPanel(FlowLayout(FlowLayout.LEFT, 0, 8)).also {
+                it.add(runIndexingButton)
+                it.add(stopIndexingButton)
+            }
+        )
 
         try {
             val inspections = InspectionService.getInstance(project).inspectionFiles
@@ -161,15 +206,6 @@ class CodeInspectionToolWindow(
         }
     }
 
-    private fun navigateToFile(file: PsiFile) {
-        FileEditorManager.getInstance(project).openFile(file.virtualFile, true)
-    }
-
-    fun dispose() {
-        Disposer.dispose(disposer)
-    }
-
-
     private fun createCollapsiblePanel(item: InspectionItem): JBPanel<*> {
         return object : JBPanel<JBPanel<*>>(BorderLayout()) {
             init {
@@ -184,15 +220,30 @@ class CodeInspectionToolWindow(
                 val titleLabel = JBLabel("${item.inspection.description} (${item.affectedFiles.size})").apply {
 //                    icon = item.title.fileType.icon
                     font = JBUI.Fonts.label().deriveFont(14f)
+                    border = JBUI.Borders.emptyLeft(10)
                 }
-                val toggleLabel = createToggleButton()
-                toggleLabel.border = JBUI.Borders.emptyRight(8)
+                val toggleLabel = createToggleButton().also {
+                    cursor = Cursor(Cursor.HAND_CURSOR)
+                    border = JBUI.Borders.empty(10)
+                }
+
+                val deleteLabel = JLabel(AllIcons.Actions.GC).apply {
+                    cursor = Cursor(Cursor.HAND_CURSOR)
+
+                    addMouseListener(object : MouseAdapter() {
+                        override fun mouseClicked(e: MouseEvent?) {
+                            println("remove inspection: ${item.inspection}")
+                            InspectionService.getInstance(project).removeInspection(item.inspection)
+                        }
+                    })
+                }
 
                 val header = JBPanel<JBPanel<*>>(BorderLayout()).apply {
                     border = JBUI.Borders.empty(4)
                     isOpaque = false
                     add(toggleLabel, BorderLayout.WEST)
                     add(titleLabel, BorderLayout.CENTER)
+                    add(deleteLabel, BorderLayout.EAST)
                 }
 
                 // Content
@@ -213,12 +264,16 @@ class CodeInspectionToolWindow(
                     add(textArea)
                     add(Box.createVerticalStrut(8))
 
-                    item.affectedFiles.forEach { detail ->
-                        val psiFile = detail.virtualFile()?.findPsiFile(project)
-                        println("Detail=$detail, virtualFile=${detail.virtualFile()}, psiFile=${psiFile}")
+                    println("Affected files size: ${item.affectedFiles}")
+
+                    item.affectedFiles.forEach { codeFile ->
+                        val psiFile = codeFile.virtualFile()?.findPsiFile(project)
+                        println("CodeFile=$codeFile, virtualFile=${codeFile.virtualFile()}, psiFile=${psiFile}")
+
                         if (psiFile != null) {
-                            add(createDetailItem(psiFile))
+                            add(createDetailItem(psiFile, item.inspection, codeFile))
                         }
+
                         add(Box.createVerticalStrut(JBUI.scale(4)))
                     }
 
@@ -252,15 +307,17 @@ class CodeInspectionToolWindow(
                 }
 
                 // Click listener
-                header.addMouseListener(object : MouseAdapter() {
-                    override fun mouseClicked(e: MouseEvent?) {
-                        content.isVisible = !content.isVisible
-                        // Access the correct component index
-                        toggleLabel.icon = getToggleIcon(content.isVisible)
-                        revalidate()
-                        repaint()
+                header.addMouseListener(
+                    object : MouseAdapter() {
+                        override fun mouseClicked(e: MouseEvent?) {
+                            content.isVisible = !content.isVisible
+                            // Access the correct component index
+                            toggleLabel.icon = getToggleIcon(content.isVisible)
+                            revalidate()
+                            repaint()
+                        }
                     }
-                })
+                )
 
                 add(header, BorderLayout.NORTH)
                 add(content, BorderLayout.CENTER)
@@ -275,38 +332,20 @@ class CodeInspectionToolWindow(
         }
     }
 
-    private fun buildDiffPanel(element: PsiElement): DiffRequestPanel {
-        val originalContent = element.text ?: ""
-        val modifiedContent = """
-// Optimized ${element.text}
-            fun ${element.text}() {
-                println("Fixed implementation")
-            }
-        """.trimIndent()
-        val contentFactory = DiffContentFactory.getInstance()
-        val language = PsiUtilCore.getLanguageAtOffset(element.containingFile, element.textOffset)
-        val fileType = language.associatedFileType ?: PlainTextFileType.INSTANCE
-        val contentLeft = contentFactory.create(originalContent, fileType)
-        val contentRight = contentFactory.create(modifiedContent, fileType)
-
-        val diffRequest = SimpleDiffRequest("Code Changes", contentLeft, contentRight, "Original", "Modified")
-        val diffPanel = DiffManager.getInstance().createRequestPanel(project, project, null)
-        diffPanel.setRequest(diffRequest)
-        diffPanel.component.isOpaque = false
-        return diffPanel
-    }
 
     private fun createToggleButton(): JLabel {
-        return JLabel(getToggleIcon(false)).apply {
-            border = JBUI.Borders.emptyLeft(10)
-        }
+        return JLabel(getToggleIcon(false))
     }
 
     private fun getToggleIcon(expanded: Boolean): Icon {
         return if (expanded) AllIcons.Actions.Collapseall else AllIcons.Actions.Expandall
     }
 
-    private fun createDetailItem(psiFile: PsiFile): JBPanel<*> {
+    private fun createDetailItem(
+        psiFile: PsiFile,
+        inspection: InspectionService.Inspection,
+        codeFile: InspectionService.CodeFile
+    ): JBPanel<*> {
         return object : JBPanel<JBPanel<*>>(BorderLayout()) {
             init {
                 isOpaque = true
@@ -316,8 +355,44 @@ class CodeInspectionToolWindow(
                     JBUI.Borders.empty(4)
                 )
 
-                val diffPanelComponent = buildDiffPanel(psiFile).component
+                val originalContent = psiFile.text.orEmpty()
+                val modifiedContent = codeFile.content
+
+                val contentFactory = DiffContentFactory.getInstance()
+                val language = PsiUtilCore.getLanguageAtOffset(psiFile.containingFile, psiFile.textOffset)
+                val fileType = language.associatedFileType ?: PlainTextFileType.INSTANCE
+                val contentLeft = contentFactory.create(originalContent, fileType)
+                val contentRight = contentFactory.create(modifiedContent, fileType)
+
+                val diffRequest = SimpleDiffRequest("Code Changes", contentLeft, contentRight, "Original", "Modified")
+                val diffPanel = DiffManager.getInstance().createRequestPanel(project, project, null)
+                diffPanel.setRequest(diffRequest)
+                diffPanel.component.isOpaque = false
+
+                val diffPanelComponent = diffPanel.component
                 diffPanelComponent.isVisible = false
+
+                // Open file button
+                val reloadButton = JButton("Reload").apply {
+                    cursor = Cursor(Cursor.HAND_CURSOR)
+                    icon = AllIcons.Actions.Refresh
+                    toolTipText = "Open ${psiFile.name}"
+                    border = JBUI.Borders.empty(4)
+                    addActionListener {
+                        val updatedContent = OpenAIClient.getInstance(project).performFix(
+                            inspection = inspection,
+                            codeFiles = listOf(codeFile)
+                        ).first().content
+
+                        println("Set updated content: $updatedContent")
+
+                        ApplicationManager.getApplication().invokeLater {
+                            WriteCommandAction.runWriteCommandAction(project) {
+                                contentRight.document.setText(updatedContent)
+                            }
+                        }
+                    }
+                }
 
                 // Open file button
                 val openButton = JButton("Open").apply {
@@ -359,6 +434,7 @@ class CodeInspectionToolWindow(
 
                     add(JPanel(FlowLayout(FlowLayout.RIGHT)).also {
                         it.add(expandButton)
+                        it.add(reloadButton)
                         it.add(openButton)
                     }, BorderLayout.EAST)
                 }

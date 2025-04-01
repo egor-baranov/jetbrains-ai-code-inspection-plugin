@@ -40,6 +40,45 @@ class OpenAIClient(private val project: Project) {
         }
     }
 
+    fun performFix(inspection: InspectionService.Inspection, codeFiles: List<InspectionService.CodeFile>): List<InspectionService.CodeFile> {
+        return codeFiles.map { codeFile ->
+            try {
+                val messages = listOf(
+                    Message(
+                        role = "system",
+                        content = """
+                        Apply this fix: ${inspection.fixPrompt}
+                        - Return only the fixed code
+                        - No explanations or markdown
+                        - Preserve original formatting
+                    """.trimIndent()
+                    ),
+                    Message(
+                        role = "user",
+                        content = "Original code:\n${codeFile.content}"
+                    )
+                )
+
+                // Call without tools parameter
+                val response = executeOpenAIRequest(messages, emptyList())
+                val fixedContent = response.choices?.firstOrNull()?.message?.content!!
+
+                codeFile.copy(content = fixedContent)
+            } catch (e: Exception) {
+                logger.error("Fix failed for ${codeFile.path}", e)
+                codeFile  // Return original file on error
+            }
+        }
+    }
+
+    private fun cleanAiResponse(raw: String): String {
+        return raw.replace("```kotlin", "")
+            .replace("```", "")
+            .trim()
+            .trimIndent()
+            .replaceFirst("^\\w+\\s*\\d*\\s*", "") // Remove possible numbering
+    }
+
     private fun createMessages(
         files: List<InspectionService.CodeFile>,
         existingInspections: List<InspectionService.Inspection>

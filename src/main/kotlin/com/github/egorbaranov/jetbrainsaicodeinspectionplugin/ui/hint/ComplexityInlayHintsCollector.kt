@@ -44,7 +44,6 @@ class ComplexityInlayHintsCollector(editor: Editor) : FactoryInlayHintsCollector
     override fun collect(element: PsiElement, editor: Editor, sink: InlayHintsSink): Boolean {
         val elementType = element.elementType.toString()
         val usages = ElementUsagesUtil.getUsages(element)
-        
 
         if (usages.isNotEmpty()) {
             println("Usages for element=$element: ${usages.map { it.containingFile.name }.toSet()}")

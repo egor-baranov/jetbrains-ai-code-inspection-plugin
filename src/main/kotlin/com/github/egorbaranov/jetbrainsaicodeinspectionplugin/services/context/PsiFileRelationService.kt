@@ -7,7 +7,6 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
-import com.intellij.util.concurrency.ThreadingAssertions
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.messages.Topic
 import org.jdom.Element
@@ -37,7 +36,7 @@ class PsiFileRelationService : PersistentStateComponent<Element> {
 
     @RequiresEdt
     fun getRelations(project: Project): Map<PsiFile, List<PsiFile>> {
-        ThreadingAssertions.assertEventDispatchThread()
+//        ThreadingAssertions.assertEventDispatchThread()
 
         return ReadAction.compute<Map<PsiFile, List<PsiFile>>, Throwable> {
             relations.entries.mapNotNull { (sourceUrl, targetUrls) ->

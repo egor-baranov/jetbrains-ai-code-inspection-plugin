@@ -1,12 +1,20 @@
 package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection
 
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.OpenAIClient
 import com.intellij.openapi.components.*
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.progress.ProcessCanceledException
+import com.intellij.openapi.progress.ProgressIndicator
+import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.util.messages.Topic
 import org.jdom.Element
+import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
+import javax.swing.SwingUtilities
 
 @State(
     name = "InspectionService",
@@ -30,14 +38,64 @@ class InspectionService(private val project: Project) : PersistentStateComponent
 
     // File relationships
     fun addFilesToInspection(inspection: Inspection, files: List<CodeFile>) {
-        inspectionFiles.getOrPut(inspection) { mutableListOf() }.let { list ->
-            list.addAll(files.filter { !list.contains(it) })
-        }
-        notifyInspectionsChanged()
-    }
+        val filteredFiles = files
+//
+//            synchronized(inspectionFiles) {
+//            inspectionFiles.getOrPut(inspection) { mutableListOf() }.let { list ->
+//                files.filter { file -> !list.any { it.path == file.path } }
+//            }
+//        }
 
+        println("Filtered files size: ${filteredFiles.size}")
+
+        if (filteredFiles.isEmpty()) return
+
+        val task = object : Task.Backgroundable(
+            project,
+            "Applying fixes for '${inspection.description}'",
+            true  // Can be canceled
+        ) {
+            override fun run(indicator: ProgressIndicator) {
+                try {
+                    indicator.isIndeterminate = false
+                    indicator.text = "Processing ${filteredFiles.size} files..."
+
+                    val fixedFiles = OpenAIClient.getInstance(project).performFix(inspection, filteredFiles)
+
+                    indicator.checkCanceled()  // Throw exception if canceled
+
+                    SwingUtilities.invokeLater {
+                        synchronized(inspectionFiles) {
+                            println("equal: ${files.first().content == fixedFiles.first().content}")
+                            inspectionFiles[inspection]?.addAll(fixedFiles)
+                        }
+                        notifyInspectionsChanged()
+                        thisLogger().info("Added ${fixedFiles.size} fixed files to inspection ${inspection.id}")
+                    }
+                } catch (e: ProcessCanceledException) {
+                    thisLogger().warn("Processing canceled for inspection ${inspection.id}")
+                } catch (e: Exception) {
+                    thisLogger().error("Failed to process files for inspection ${inspection.id}", e)
+                    SwingUtilities.invokeLater {
+                        Messages.showErrorDialog(
+                            "Failed to apply fixes: ${e.message}",
+                            "Inspection Error"
+                        )
+                    }
+                }
+            }
+        }
+
+        ProgressManager.getInstance().run(task)
+    }
     fun getFilesForInspection(inspection: Inspection): List<CodeFile> =
         inspectionFiles[inspection] ?: emptyList()
+
+    fun removeInspection(inspection: Inspection) {
+        inspectionsById.remove(inspection.id)
+        inspectionFiles.remove(inspection)
+        notifyInspectionsChanged()
+    }
 
     // Persistent state handling
     override fun getState(): Element {
@@ -134,6 +192,8 @@ class InspectionService(private val project: Project) : PersistentStateComponent
         fun getInstance(project: Project): InspectionService {
             return project.service()
         }
+
+        val logger = LoggerFactory.getLogger(InspectionService::class.java)
 
         val INSPECTION_CHANGE_TOPIC = Topic.create(
             "AI Code Inspections Changed",
