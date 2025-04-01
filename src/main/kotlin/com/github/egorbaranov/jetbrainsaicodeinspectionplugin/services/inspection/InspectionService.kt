@@ -26,30 +26,44 @@ class InspectionService(private val project: Project) : PersistentStateComponent
     val inspectionFiles = ConcurrentHashMap<Inspection, MutableList<CodeFile>>()
 
     // Inspection management
-    fun putInspection(inspection: Inspection) {
+    fun putInspection(inspection: Inspection, files: List<CodeFile>) {
         inspectionsById[inspection.id] = inspection
         inspectionFiles.getOrPut(inspection) { mutableListOf() }
-        notifyInspectionsChanged()
+        addFilesToInspection(inspection, files)
     }
 
     fun getInspectionById(id: String): Inspection? = inspectionsById[id]
 
     fun getInspections(): List<Inspection> = inspectionsById.values.toList()
 
-    // File relationships
-    fun addFilesToInspection(inspection: Inspection, files: List<CodeFile>) {
-        val filteredFiles = files
-//
-//            synchronized(inspectionFiles) {
-//            inspectionFiles.getOrPut(inspection) { mutableListOf() }.let { list ->
-//                files.filter { file -> !list.any { it.path == file.path } }
-//            }
-//        }
+    fun setInspectionDescription(id: String, description: String) {
+        println("set inspection description: id=$id, description=$description")
 
-        println("Filtered files size: ${filteredFiles.size}")
+        val inspection = inspectionsById[id] ?: return
+        val newInspection = inspection.copy(description = description)
+        val filesById = inspectionFiles[inspection].orEmpty().toMutableList()
 
+        inspectionsById[id] = newInspection
+        inspectionFiles[newInspection] = filesById
+        inspectionFiles.remove(inspection)
+    }
+
+    fun addFilesToInspection(
+        inspection: Inspection,
+        files: List<CodeFile>,
+        onPerformed: ((List<CodeFile>) -> Unit)? = null
+    ) {
+        val existingFiles = inspectionFiles[inspection]?.map { it.path }?.toSet().orEmpty()
+        val filteredFiles = files.filter { !existingFiles.contains(it.path) }
         if (filteredFiles.isEmpty()) return
+        performFixWithProgress(inspection, filteredFiles, onPerformed)
+    }
 
+    fun performFixWithProgress(
+        inspection: Inspection,
+        codeFiles: List<CodeFile>,
+        onPerformed: ((List<CodeFile>) -> Unit)? = null
+    ) {
         val task = object : Task.Backgroundable(
             project,
             "Applying fixes for '${inspection.description}'",
@@ -58,18 +72,19 @@ class InspectionService(private val project: Project) : PersistentStateComponent
             override fun run(indicator: ProgressIndicator) {
                 try {
                     indicator.isIndeterminate = false
-                    indicator.text = "Processing ${filteredFiles.size} files..."
+                    indicator.text = "Processing ${codeFiles.size} files..."
 
-                    val fixedFiles = OpenAIClient.getInstance(project).performFix(inspection, filteredFiles)
-
+                    val fixedFiles = OpenAIClient.getInstance(project).performFix(inspection, codeFiles)
+                    onPerformed?.let {
+                        it(fixedFiles)
+                    }
                     indicator.checkCanceled()  // Throw exception if canceled
 
                     SwingUtilities.invokeLater {
                         synchronized(inspectionFiles) {
-                            println("equal: ${files.first().content == fixedFiles.first().content}")
+                            println("equal: ${codeFiles.first().content == fixedFiles.first().content}")
                             inspectionFiles[inspection]?.addAll(fixedFiles)
                         }
-                        notifyInspectionsChanged()
                         thisLogger().info("Added ${fixedFiles.size} fixed files to inspection ${inspection.id}")
                     }
                 } catch (e: ProcessCanceledException) {
@@ -82,12 +97,15 @@ class InspectionService(private val project: Project) : PersistentStateComponent
                             "Inspection Error"
                         )
                     }
+                } finally {
+                    notifyInspectionsChanged()
                 }
             }
         }
 
         ProgressManager.getInstance().run(task)
     }
+
     fun getFilesForInspection(inspection: Inspection): List<CodeFile> =
         inspectionFiles[inspection] ?: emptyList()
 

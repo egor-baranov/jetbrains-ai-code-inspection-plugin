@@ -1,6 +1,5 @@
 package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.toolWindow
 
-import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.OpenAIClient
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.task.RelationsAnalyzerTask
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context.PsiFileRelationService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService
@@ -10,8 +9,10 @@ import com.intellij.diff.requests.SimpleDiffRequest
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.editor.Document
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
@@ -19,6 +20,7 @@ import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.findDocument
 import com.intellij.openapi.vfs.findPsiFile
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.psi.PsiFile
@@ -255,20 +257,27 @@ class CodeInspectionToolWindow(
                     val textArea = JTextArea(item.inspection.fixPrompt).apply {
                         lineWrap = true
                         wrapStyleWord = true
-                        isEditable = false
+                        isEditable = true
                         background = JBColor.PanelBackground.brighter()
                         border = BorderFactory.createEmptyBorder()
+
+                        document.addUndoableEditListener {
+                            println("document edited")
+                            InspectionService.getInstance(project).setInspectionDescription(
+                                item.inspection.id,
+                                document.getText(0, document.length)
+                            )
+                        }
                     }
 
                     add(Box.createVerticalStrut(8))
                     add(textArea)
                     add(Box.createVerticalStrut(8))
 
-                    println("Affected files size: ${item.affectedFiles}")
+                    println("Affected files size: ${item.affectedFiles.size}")
 
                     item.affectedFiles.forEach { codeFile ->
                         val psiFile = codeFile.virtualFile()?.findPsiFile(project)
-                        println("CodeFile=$codeFile, virtualFile=${codeFile.virtualFile()}, psiFile=${psiFile}")
 
                         if (psiFile != null) {
                             add(createDetailItem(psiFile, item.inspection, codeFile))
@@ -286,16 +295,32 @@ class CodeInspectionToolWindow(
                             putClientProperty("ActionToolbar.ACTION_BUTTON_KEY", true)
                             putClientProperty("ActionButton.smallVariant", true)
 
-                            addActionListener {
-//                                handleFixAction(element)
-                                SwingUtilities.getWindowAncestor(this)?.dispose()
-                            }
+                            addMouseListener(
+                                object : MouseAdapter() {
+                                    override fun mouseClicked(e: MouseEvent?) {
+                                        ApplicationManager.getApplication().executeOnPooledThread {
+                                            val filesToUpdate = item.affectedFiles.mapNotNull { codeFile ->
+                                                ReadAction.compute<Pair<Document?, String>?, Throwable> {
+                                                    codeFile.virtualFile()?.findDocument() to codeFile.content
+                                                }
+                                            }
+
+                                            WriteCommandAction.runWriteCommandAction(project) {
+                                                filesToUpdate.forEach { (document, content) ->
+                                                    document?.setText(content)
+                                                }
+                                                InspectionService.getInstance(project).removeInspection(item.inspection)
+                                            }
+                                        }
+                                    }
+                                }
+                            )
                         }
 
                         val ignoreButton = JButton("Ignore").apply {
                             isOpaque = false
                             addActionListener {
-                                SwingUtilities.getWindowAncestor(this)?.dispose()
+                                InspectionService.getInstance(project).removeInspection(inspection = item.inspection)
                             }
                         }
 
@@ -379,16 +404,17 @@ class CodeInspectionToolWindow(
                     toolTipText = "Open ${psiFile.name}"
                     border = JBUI.Borders.empty(4)
                     addActionListener {
-                        val updatedContent = OpenAIClient.getInstance(project).performFix(
+                        InspectionService.getInstance(project).performFixWithProgress(
                             inspection = inspection,
                             codeFiles = listOf(codeFile)
-                        ).first().content
+                        ) {
+                            val updatedContent = it.first().content
+                            ApplicationManager.getApplication().invokeLater {
 
-                        println("Set updated content: $updatedContent")
-
-                        ApplicationManager.getApplication().invokeLater {
-                            WriteCommandAction.runWriteCommandAction(project) {
-                                contentRight.document.setText(updatedContent)
+                                // TODO: fires exception!!
+                                WriteCommandAction.runWriteCommandAction(project) {
+                                    contentRight.document.setText(updatedContent)
+                                }
                             }
                         }
                     }

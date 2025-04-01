@@ -2,6 +2,7 @@ package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api
 
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.storage.OpenAIKeyStorage
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.StringUtils
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.annotations.SerializedName
@@ -40,7 +41,10 @@ class OpenAIClient(private val project: Project) {
         }
     }
 
-    fun performFix(inspection: InspectionService.Inspection, codeFiles: List<InspectionService.CodeFile>): List<InspectionService.CodeFile> {
+    fun performFix(
+        inspection: InspectionService.Inspection,
+        codeFiles: List<InspectionService.CodeFile>
+    ): List<InspectionService.CodeFile> {
         return codeFiles.map { codeFile ->
             try {
                 val messages = listOf(
@@ -61,7 +65,7 @@ class OpenAIClient(private val project: Project) {
 
                 // Call without tools parameter
                 val response = executeOpenAIRequest(messages, emptyList())
-                val fixedContent = response.choices?.firstOrNull()?.message?.content!!
+                val fixedContent = StringUtils.extractCode(response.choices?.firstOrNull()?.message?.content!!)
 
                 codeFile.copy(content = fixedContent)
             } catch (e: Exception) {
@@ -69,14 +73,6 @@ class OpenAIClient(private val project: Project) {
                 codeFile  // Return original file on error
             }
         }
-    }
-
-    private fun cleanAiResponse(raw: String): String {
-        return raw.replace("```kotlin", "")
-            .replace("```", "")
-            .trim()
-            .trimIndent()
-            .replaceFirst("^\\w+\\s*\\d*\\s*", "") // Remove possible numbering
     }
 
     private fun createMessages(
@@ -238,8 +234,8 @@ class OpenAIClient(private val project: Project) {
             description = args.description,
             fixPrompt = args.fix_prompt
         )
-        InspectionService.getInstance(project).putInspection(inspection)
-        InspectionService.getInstance(project).addFilesToInspection(inspection, files)
+
+        InspectionService.getInstance(project).putInspection(inspection, files)
         return Action.AddInspection(inspection)
     }
 
