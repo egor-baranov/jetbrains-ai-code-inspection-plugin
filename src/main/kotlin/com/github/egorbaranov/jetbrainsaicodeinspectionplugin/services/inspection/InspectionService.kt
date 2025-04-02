@@ -55,8 +55,19 @@ class InspectionService(private val project: Project) : PersistentStateComponent
     ) {
         val existingFiles = inspectionFiles[inspection]?.map { it.path }?.toSet().orEmpty()
         val filteredFiles = files.filter { !existingFiles.contains(it.path) }
-        if (filteredFiles.isEmpty()) return
-        performFixWithProgress(inspection, filteredFiles, onPerformed)
+        if (filteredFiles.size < 2) return
+
+        inspectionLoading(inspection)
+
+        performFixWithProgress(inspection, filteredFiles) {
+            println("added files to inspection: ${filteredFiles.size}}")
+            synchronized(inspectionFiles) {
+                if (inspectionFiles[inspection] == null) {
+                    inspectionFiles[inspection] = mutableListOf()
+                }
+                inspectionFiles[inspection]?.addAll(it)
+            }
+        }
     }
 
     fun performFixWithProgress(
@@ -64,29 +75,21 @@ class InspectionService(private val project: Project) : PersistentStateComponent
         codeFiles: List<CodeFile>,
         onPerformed: ((List<CodeFile>) -> Unit)? = null
     ) {
+        val fixedFiles = mutableListOf<CodeFile>()
         val task = object : Task.Backgroundable(
             project,
             "Applying fixes for '${inspection.description}'",
-            true  // Can be canceled
+            true
         ) {
             override fun run(indicator: ProgressIndicator) {
                 try {
                     indicator.isIndeterminate = false
                     indicator.text = "Processing ${codeFiles.size} files..."
 
-                    val fixedFiles = OpenAIClient.getInstance(project).performFix(inspection, codeFiles)
-                    onPerformed?.let {
-                        it(fixedFiles)
-                    }
+                    fixedFiles.addAll(OpenAIClient.getInstance(project).performFix(inspection, codeFiles))
                     indicator.checkCanceled()  // Throw exception if canceled
 
-                    SwingUtilities.invokeLater {
-                        synchronized(inspectionFiles) {
-                            println("equal: ${codeFiles.first().content == fixedFiles.first().content}")
-                            inspectionFiles[inspection]?.addAll(fixedFiles)
-                        }
-                        thisLogger().info("Added ${fixedFiles.size} fixed files to inspection ${inspection.id}")
-                    }
+                    thisLogger().info("Added ${fixedFiles.size} fixed files to inspection ${inspection.id}")
                 } catch (e: ProcessCanceledException) {
                     thisLogger().warn("Processing canceled for inspection ${inspection.id}")
                 } catch (e: Exception) {
@@ -98,6 +101,9 @@ class InspectionService(private val project: Project) : PersistentStateComponent
                         )
                     }
                 } finally {
+                    onPerformed?.let {
+                        it(fixedFiles)
+                    }
                     notifyInspectionsChanged()
                 }
             }
@@ -109,10 +115,19 @@ class InspectionService(private val project: Project) : PersistentStateComponent
     fun getFilesForInspection(inspection: Inspection): List<CodeFile> =
         inspectionFiles[inspection] ?: emptyList()
 
+    fun inspectionLoading(inspection: Inspection) {
+        project.messageBus.syncPublisher(INSPECTION_CHANGE_TOPIC).inspectionLoading(inspection)
+    }
+
     fun removeInspection(inspection: Inspection) {
         inspectionsById.remove(inspection.id)
         inspectionFiles.remove(inspection)
-        notifyInspectionsChanged()
+        project.messageBus.syncPublisher(INSPECTION_CHANGE_TOPIC).removeInspection(inspection)
+    }
+
+    fun removeFileFromInspection(inspection: Inspection, codeFile: CodeFile) {
+        inspectionFiles[inspection]?.remove(codeFile)
+        project.messageBus.syncPublisher(INSPECTION_CHANGE_TOPIC).removeFileFromInspection(inspection, codeFile)
     }
 
     // Persistent state handling
@@ -164,15 +179,12 @@ class InspectionService(private val project: Project) : PersistentStateComponent
         thisLogger().debug("Loaded ${inspectionsById.size} inspections with files")
     }
 
-    // Cleanup invalid entries
-    fun cleanupState() {
-        inspectionsById.keys.removeAll { id ->
-            inspectionsById[id]?.let { inspection ->
-                inspectionFiles[inspection]?.removeAll { file ->
-                    file.virtualFile()?.isValid != true
-                }
-                false
-            } ?: true
+    fun clearState() {
+        synchronized(inspectionFiles) {
+            synchronized(inspectionsById) {
+                inspectionsById.clear()
+                inspectionFiles.clear()
+            }
         }
     }
 
@@ -203,7 +215,13 @@ class InspectionService(private val project: Project) : PersistentStateComponent
     }
 
     interface InspectionChangeListener {
+        fun inspectionLoading(inspection: Inspection)
+
         fun inspectionsChanged()
+
+        fun removeInspection(inspection: Inspection)
+
+        fun removeFileFromInspection(inspection: Inspection, codeFile: CodeFile)
     }
 
     companion object {

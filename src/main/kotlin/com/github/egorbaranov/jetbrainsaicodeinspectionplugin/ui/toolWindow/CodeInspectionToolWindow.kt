@@ -3,10 +3,12 @@ package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.toolWindow
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.task.RelationsAnalyzerTask
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context.PsiFileRelationService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.component.SkeletonLoadingComponent
 import com.intellij.diff.DiffContentFactory
 import com.intellij.diff.DiffManager
 import com.intellij.diff.requests.SimpleDiffRequest
 import com.intellij.icons.AllIcons
+import com.intellij.ide.actions.ShowSettingsUtilImpl
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.ReadAction
@@ -31,6 +33,7 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.panels.VerticalLayout
+import com.intellij.util.IconUtil
 import com.intellij.util.ui.JBUI
 import java.awt.*
 import java.awt.event.MouseAdapter
@@ -98,6 +101,18 @@ class CodeInspectionToolWindow(
                 override fun inspectionsChanged() {
                     updateContent()
                 }
+
+                override fun inspectionLoading(inspection: InspectionService.Inspection) {
+                    contentPanel.add(SkeletonLoadingComponent())
+                }
+
+                override fun removeInspection(inspection: InspectionService.Inspection) {}
+
+                override fun removeFileFromInspection(
+                    inspection: InspectionService.Inspection,
+                    codeFile: InspectionService.CodeFile
+                ) {
+                }
             })
     }
 
@@ -139,8 +154,13 @@ class CodeInspectionToolWindow(
 
         // Clear and rebuild content safely
         contentPanel.removeAll()
+        println("Update content: ${InspectionService.getInstance(project).inspectionFiles.size}")
 
-        val runIndexingButton = JButton("Run Indexing").also {
+        val runIndexingButton = JButton().also {
+            it.icon = IconUtil.resizeSquared(AllIcons.Actions.Execute, 20)
+            it.putClientProperty("JButton.buttonType", "square")
+            it.preferredSize = Dimension(40, 40)
+            it.cursor = Cursor(Cursor.HAND_CURSOR)
             it.addMouseListener(
                 object : MouseAdapter() {
                     override fun mouseClicked(e: MouseEvent?) {
@@ -157,11 +177,66 @@ class CodeInspectionToolWindow(
                 }
             )
         }
-        val stopIndexingButton = JButton("Stop Indexing")
+
+        val stopIndexingButton = JButton().also {
+            it.icon = IconUtil.resizeSquared(AllIcons.Actions.Suspend, 20)
+            it.putClientProperty("JButton.buttonType", "square")
+            it.preferredSize = Dimension(40, 40)
+            it.cursor = Cursor(Cursor.HAND_CURSOR)
+        }
+
+        val clearAllButton = JButton().also {
+            it.icon = IconUtil.resizeSquared(AllIcons.Actions.GC, 20)
+            it.putClientProperty("JButton.buttonType", "square")
+            it.preferredSize = Dimension(40, 40)
+            it.cursor = Cursor(Cursor.HAND_CURSOR)
+            it.addMouseListener(
+                object : MouseAdapter() {
+                    override fun mouseClicked(e: MouseEvent?) {
+                        InspectionService.getInstance(project).clearState()
+                        updateContent()
+                    }
+                }
+            )
+        }
+
+        val settingsButton = JButton().also {
+            it.icon = IconUtil.resizeSquared(AllIcons.General.Settings, 20)
+            it.putClientProperty("JButton.buttonType", "square")
+            it.preferredSize = Dimension(40, 40)
+            it.cursor = Cursor(Cursor.HAND_CURSOR)
+            it.addMouseListener(
+                object : MouseAdapter() {
+                    override fun mouseClicked(e: MouseEvent?) {
+                        ShowSettingsUtilImpl.showSettingsDialog(
+                            project,
+                            "ai.code.inspection.settings", // Match the ID from plugin.xml
+                            "" // Additional search query (optional)
+                        )
+                    }
+                }
+            )
+        }
+
         contentPanel.add(
-            JPanel(FlowLayout(FlowLayout.LEFT, 0, 8)).also {
-                it.add(runIndexingButton)
-                it.add(stopIndexingButton)
+            JPanel(BorderLayout()).also {
+                it.add(
+                    JPanel(FlowLayout(FlowLayout.LEFT, 0, 8)).also {
+                        it.add(runIndexingButton)
+                        it.add(Box.createHorizontalStrut(8))
+                        it.add(stopIndexingButton)
+                    },
+                    BorderLayout.WEST
+                )
+
+                it.add(
+                    JPanel(FlowLayout(FlowLayout.RIGHT, 0, 8)).also {
+                        it.add(clearAllButton)
+                        it.add(Box.createHorizontalStrut(8))
+                        it.add(settingsButton)
+                    },
+                    BorderLayout.EAST
+                )
             }
         )
 
@@ -174,7 +249,6 @@ class CodeInspectionToolWindow(
                         affectedFiles = affectedFiles
                     )
                 )
-                contentPanel.add(Box.createVerticalStrut(JBUI.scale(8)))
             }
         } catch (e: Throwable) {
             thisLogger().error("Failed to update content", e)
@@ -211,6 +285,7 @@ class CodeInspectionToolWindow(
     private fun createCollapsiblePanel(item: InspectionItem): JBPanel<*> {
         return object : JBPanel<JBPanel<*>>(BorderLayout()) {
             init {
+                val collapsiblePanel = this
                 isOpaque = false
 
                 // Rounded border
@@ -236,6 +311,7 @@ class CodeInspectionToolWindow(
                         override fun mouseClicked(e: MouseEvent?) {
                             println("remove inspection: ${item.inspection}")
                             InspectionService.getInstance(project).removeInspection(item.inspection)
+                            contentPanel.remove(collapsiblePanel)
                         }
                     })
                 }
@@ -250,6 +326,7 @@ class CodeInspectionToolWindow(
 
                 // Content
                 val content = JBPanel<JBPanel<*>>(VerticalLayout(JBUI.scale(4))).apply {
+                    val rootContent = this
                     border = JBUI.Borders.empty(4)
                     isVisible = false
                     isOpaque = false
@@ -280,7 +357,7 @@ class CodeInspectionToolWindow(
                         val psiFile = codeFile.virtualFile()?.findPsiFile(project)
 
                         if (psiFile != null) {
-                            add(createDetailItem(psiFile, item.inspection, codeFile))
+                            add(createDetailItem(psiFile, item.inspection, codeFile, rootContent))
                         }
 
                         add(Box.createVerticalStrut(JBUI.scale(4)))
@@ -369,10 +446,12 @@ class CodeInspectionToolWindow(
     private fun createDetailItem(
         psiFile: PsiFile,
         inspection: InspectionService.Inspection,
-        codeFile: InspectionService.CodeFile
+        codeFile: InspectionService.CodeFile,
+        rootContent: JPanel
     ): JBPanel<*> {
         return object : JBPanel<JBPanel<*>>(BorderLayout()) {
             init {
+                val detailItemPanel = this
                 isOpaque = true
                 background = JBColor.PanelBackground
                 border = BorderFactory.createCompoundBorder(
@@ -398,57 +477,76 @@ class CodeInspectionToolWindow(
                 diffPanelComponent.isVisible = false
 
                 // Open file button
-                val reloadButton = JButton("Reload").apply {
+                val reloadButton = JLabel(AllIcons.Actions.Refresh).apply {
                     cursor = Cursor(Cursor.HAND_CURSOR)
-                    icon = AllIcons.Actions.Refresh
                     toolTipText = "Open ${psiFile.name}"
                     border = JBUI.Borders.empty(4)
-                    addActionListener {
-                        InspectionService.getInstance(project).performFixWithProgress(
-                            inspection = inspection,
-                            codeFiles = listOf(codeFile)
-                        ) {
-                            val updatedContent = it.first().content
-                            ApplicationManager.getApplication().invokeLater {
+                    addMouseListener(object : MouseAdapter() {
+                        override fun mouseClicked(e: MouseEvent?) {
+                            InspectionService.getInstance(project).performFixWithProgress(
+                                inspection = inspection,
+                                codeFiles = listOf(codeFile)
+                            ) {
+                                val updatedContent = it.first().content
+                                ApplicationManager.getApplication().invokeLater {
 
-                                // TODO: fires exception!!
-                                WriteCommandAction.runWriteCommandAction(project) {
-                                    contentRight.document.setText(updatedContent)
+                                    // TODO: fires exception!!
+                                    WriteCommandAction.runWriteCommandAction(project) {
+                                        contentRight.document.setText(updatedContent)
+                                    }
                                 }
                             }
                         }
-                    }
+                    })
                 }
 
                 // Open file button
-                val openButton = JButton("Open").apply {
+                val openButton = JLabel(AllIcons.Actions.OpenNewTab).apply {
                     cursor = Cursor(Cursor.HAND_CURSOR)
-                    icon = AllIcons.Actions.OpenNewTab
                     toolTipText = "Open ${psiFile.name}"
                     border = JBUI.Borders.empty(4)
-                    addActionListener {
-                        if (psiFile.isValid && !psiFile.project.isDisposed) {
-                            FileEditorManager.getInstance(psiFile.project).openFile(
-                                psiFile.virtualFile,
-                                true, // request focus
-                                true // open in current window
-                            )
+                    addMouseListener(object : MouseAdapter() {
+                        override fun mouseClicked(e: MouseEvent?) {
+                            if (psiFile.isValid && !psiFile.project.isDisposed) {
+                                FileEditorManager.getInstance(psiFile.project).openFile(
+                                    psiFile.virtualFile,
+                                    true, // request focus
+                                    true //
+                                )// open in current window
+                            }
                         }
-                    }
+                    })
                 }
 
-                val expandButton = JButton("Expand").apply {
+                val deleteButton = JLabel(AllIcons.Actions.GC).apply {
+                    cursor = Cursor(Cursor.HAND_CURSOR)
+                    toolTipText = "Remove from diff ${psiFile.name}"
+                    border = JBUI.Borders.empty(4)
+                    addMouseListener(object : MouseAdapter() {
+                        override fun mouseClicked(e: MouseEvent?) {
+                            InspectionService.getInstance(project).removeFileFromInspection(
+                                inspection,
+                                codeFile
+                            )
+                            rootContent.remove(detailItemPanel)
+                        }
+                    })
+                }
+
+                val expandButton = JLabel(AllIcons.Actions.Expandall).apply {
+                    val button = this
                     cursor = Cursor(Cursor.HAND_CURSOR)
                     icon = getToggleIcon(diffPanelComponent.isVisible)
                     toolTipText = "Expand diff for ${psiFile.name}"
                     border = JBUI.Borders.empty(4)
-                    addActionListener {
-                        diffPanelComponent.isVisible = !diffPanelComponent.isVisible
-                        this.icon = getToggleIcon(diffPanelComponent.isVisible)
-                        this.text = if (diffPanelComponent.isVisible) "Collapse" else "Expand"
-                        revalidate()
-                        repaint()
-                    }
+                    addMouseListener(object : MouseAdapter() {
+                        override fun mouseClicked(e: MouseEvent?) {
+                            diffPanelComponent.isVisible = !diffPanelComponent.isVisible
+                            button.icon = getToggleIcon(diffPanelComponent.isVisible)
+                            revalidate()
+                            repaint()
+                        }
+                    })
                 }
 
                 val labelPanel = JBPanel<JBPanel<*>>(BorderLayout()).apply {
@@ -456,12 +554,13 @@ class CodeInspectionToolWindow(
                     add(JBLabel(psiFile.name).apply {
                         border = JBUI.Borders.empty(4)
                         icon = psiFile.fileType.icon
-                    }, BorderLayout.WEST)
+                    }, BorderLayout.CENTER)
 
-                    add(JPanel(FlowLayout(FlowLayout.RIGHT)).also {
+                    add(JPanel(FlowLayout(FlowLayout.LEFT, 8, 8)).also {
                         it.add(expandButton)
                         it.add(reloadButton)
                         it.add(openButton)
+                        it.add(deleteButton)
                     }, BorderLayout.EAST)
                 }
 

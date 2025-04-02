@@ -9,6 +9,12 @@
     <resource-bundle>messages.MyBundle</resource-bundle>
 
     <extensions defaultExtensionNs="com.intellij">
+        <applicationConfigurable
+                id="ai.code.inspection.settings"
+                instance="com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.settings.PluginConfigurable"
+                displayName="AI Code Inspection Plugin"/>
+        <applicationService
+                serviceImplementation="com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.settings.PluginSettingsState"/>
         <projectService serviceImplementation="com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context.PsiFileRelationService"/>
 
         <toolWindow

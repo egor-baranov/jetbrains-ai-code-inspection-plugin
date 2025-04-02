@@ -1,18 +1,27 @@
 package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
+import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectRootManager
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiDirectory
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
 import com.intellij.psi.util.PsiTreeUtil
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+
+private val logger = logger<ProjectIndexer>()
 
 class ProjectIndexer(private val project: Project) {
     private val isIndexing = AtomicBoolean(false)
@@ -21,7 +30,7 @@ class ProjectIndexer(private val project: Project) {
 
     interface IndexingHandler {
         fun shouldProcess(element: PsiElement): Boolean
-        fun processElement(element: PsiElement)
+        suspend fun processElement(element: PsiElement)
         fun onComplete(index: Map<String, PsiElement>)
         fun onError(error: Throwable)
     }
@@ -29,49 +38,48 @@ class ProjectIndexer(private val project: Project) {
     fun startIndexing(handler: IndexingHandler) {
         if (!isIndexing.compareAndSet(false, true)) return
 
-        ProgressManager.getInstance().run(object : Task.Backgroundable(
-            project,
-            "Indexing project structure",
-            true
-        ) {
-            override fun run(indicator: ProgressIndicator) {
-                currentIndicator = indicator
-                try {
-                    indicator.isIndeterminate = false
-                    val startTime = System.currentTimeMillis()
-
-                    processProject(handler, indicator)
-
-                    val duration = System.currentTimeMillis() - startTime
-                    handler.onComplete(indexData.toMap())
-                } catch (e: Exception) {
-                    handler.onError(e)
-                } finally {
-                    isIndexing.set(false)
-                    currentIndicator = null
+        DumbService.getInstance(project).runWhenSmart {
+            ProgressManager.getInstance().run(object : Task.Backgroundable(
+                project,
+                "Indexing project structure",
+                true,
+                ALWAYS_BACKGROUND
+            ) {
+                override fun run(indicator: ProgressIndicator) {
+                    currentIndicator = indicator
+                    try {
+                        processProject(handler, indicator)
+                        handler.onComplete(indexData.toMap())
+                    } catch (e: ProcessCanceledException) {
+                        logger.info("Indexing cancelled")
+                    } catch (e: Exception) {
+                        handler.onError(e)
+                    } finally {
+                        isIndexing.set(false)
+                        currentIndicator = null
+                    }
                 }
-            }
-        })
+            })
+        }
     }
 
     private fun processProject(handler: IndexingHandler, indicator: ProgressIndicator) {
-        val virtualFiles = ProjectRootManager.getInstance(project)
-            .contentSourceRoots
-
-        virtualFiles.forEach { root ->
-            if (indicator.isCanceled) return
-
-            // Wrap PSI access in read action
-            val dir = ApplicationManager.getApplication().runReadAction<PsiDirectory?> {
-                PsiManager.getInstance(project).findDirectory(root)
-            }
-
-            dir?.let { psiDir ->
-                ApplicationManager.getApplication().runReadAction {
-                    processDirectory(psiDir, handler, indicator)
-                }
-            }
+        val roots = readAction {
+            ProjectRootManager.getInstance(project).contentSourceRoots
         }
+
+        roots.forEach { root ->
+            indicator.checkCanceled()
+            processRoot(root, handler, indicator)
+        }
+    }
+
+    private fun processRoot(root: VirtualFile, handler: IndexingHandler, indicator: ProgressIndicator) {
+        val psiDir = readAction {
+            PsiManager.getInstance(project).findDirectory(root)
+        } ?: return
+
+        processDirectory(psiDir, handler, indicator)
     }
 
     private fun processDirectory(
@@ -82,19 +90,9 @@ class ProjectIndexer(private val project: Project) {
         indicator.checkCanceled()
         indicator.text2 = "Indexing: ${dir.virtualFile.url}"
 
-        // Process elements in read action
-        ApplicationManager.getApplication().runReadAction {
-            PsiTreeUtil.processElements(dir) { element ->
-                if (handler.shouldProcess(element)) {
-                    indexData[element.hashCode().toString()] = element
-                    handler.processElement(element)
-                }
-                !indicator.isCanceled
-            }
-        }
+        processElements(dir, handler, indicator)
 
-        // Process children in read action
-        ApplicationManager.getApplication().runReadAction {
+        readAction {
             dir.children.forEach { child ->
                 when (child) {
                     is PsiFile -> processFile(child, handler, indicator)
@@ -111,15 +109,34 @@ class ProjectIndexer(private val project: Project) {
     ) {
         indicator.checkCanceled()
         indicator.text = "Processing file: ${file.name}"
-        indicator.fraction = calculateProgress()
+        indicator.fraction = calculateProgress(file)
 
-        ApplicationManager.getApplication().runReadAction {
-            PsiTreeUtil.processElements(file) { element ->
+        processElements(file, handler, indicator)
+    }
+
+    private fun processElements(
+        container: PsiElement,
+        handler: IndexingHandler,
+        indicator: ProgressIndicator
+    ) {
+        readAction {
+            PsiTreeUtil.processElements(container) { element ->
+                indicator.checkCanceled()
                 if (handler.shouldProcess(element)) {
                     indexData[element.hashCode().toString()] = element
-                    handler.processElement(element)
+                    launchProcessor(element, handler)
                 }
-                !indicator.isCanceled
+                true
+            }
+        }
+    }
+
+    private fun launchProcessor(element: PsiElement, handler: IndexingHandler) {
+        CoroutineScope(Dispatchers.Default).launch {
+            try {
+                handler.processElement(element)
+            } catch (e: Exception) {
+                logger.error("Error processing element", e)
             }
         }
     }
@@ -131,8 +148,12 @@ class ProjectIndexer(private val project: Project) {
 
     fun isIndexing() = isIndexing.get()
 
-    private fun calculateProgress(): Double {
-        // Implement your progress calculation logic
-        return 0.0
+    private fun calculateProgress(file: PsiFile): Double {
+        // Implement actual progress calculation logic
+        return (indexData.size % 100) / 100.0
+    }
+
+    private inline fun <T> readAction(noinline action: () -> T): T {
+        return ApplicationManager.getApplication().runReadAction<T>(action)
     }
 }

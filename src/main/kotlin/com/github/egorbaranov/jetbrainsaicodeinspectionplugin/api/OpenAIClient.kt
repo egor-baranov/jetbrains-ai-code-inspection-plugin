@@ -2,7 +2,7 @@ package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api
 
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.storage.OpenAIKeyStorage
-import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.StringUtils
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.http.RateLimitingInterceptor
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.annotations.SerializedName
@@ -16,10 +16,18 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.util.*
+import java.util.concurrent.TimeUnit
+import javax.xml.bind.ValidationException
 
 @Service(Service.Level.PROJECT)
 class OpenAIClient(private val project: Project) {
-    private val client = OkHttpClient()
+    private val client = OkHttpClient.Builder()
+        .addInterceptor(RateLimitingInterceptor(requestsPerMinute = 300))
+        .connectTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
+        .build()
+
     private val gson = Gson()
     private val logger = Logger.getInstance(javaClass)
 
@@ -45,32 +53,67 @@ class OpenAIClient(private val project: Project) {
         inspection: InspectionService.Inspection,
         codeFiles: List<InspectionService.CodeFile>
     ): List<InspectionService.CodeFile> {
-        return codeFiles.map { codeFile ->
+        return codeFiles.mapNotNull { codeFile ->
             try {
-                val messages = listOf(
-                    Message(
-                        role = "system",
-                        content = """
-                        Apply this fix: ${inspection.fixPrompt}
-                        - Return only the fixed code
-                        - No explanations or markdown
-                        - Preserve original formatting
+                val maxAttempts = 3
+                var attempts = 0
+                var validFixFound = false
+                var fixedContent = codeFile.content
+
+                while (attempts < maxAttempts && !validFixFound) {
+                    try {
+                        val messages = listOf(
+                            Message(
+                                role = "system",
+                                content = """
+                        CRITICAL INSTRUCTIONS (NON-NEGOTIABLE):
+                        1. Apply EXACTLY: ${inspection.fixPrompt}
+                        2. Respond ONLY with raw, unmodified code
+                        3. STRICT FORBIDDEN ELEMENTS:
+                           - No markdown (```)
+                           - No natural language
+                           - No code comments
+                           - No version headers
+                        4. Formatting MUST PRESERVE:
+                           - Original indentation
+                           - Existing whitespace
+                           - Line breaks
+                           - Comment positions
+
+                        VIOLATIONS WILL CAUSE AUTOMATIC REJECTION
                     """.trimIndent()
-                    ),
-                    Message(
-                        role = "user",
-                        content = "Original code:\n${codeFile.content}"
-                    )
-                )
+                            ),
+                            Message(
+                                role = "user",
+                                content = """
+                                ${codeFile.content}
+                            """.trimIndent()
+                            )
+                        )
 
-                // Call without tools parameter
-                val response = executeOpenAIRequest(messages, emptyList())
-                val fixedContent = StringUtils.extractCode(response.choices?.firstOrNull()?.message?.content!!)
+                        val response = executeOpenAIRequest(messages, emptyList())
+                        val rawResponse = response.choices?.firstOrNull()?.message?.content ?: ""
 
-                codeFile.copy(content = fixedContent)
+                        fixedContent = rawResponse
+                        if (codeFile.content.trimIndent() != fixedContent.trimIndent() && fixedContent.isNotBlank()) {
+                            validFixFound = true
+                        } else {
+                            attempts++
+                            logger.warn("Structural validation failed, retrying... (${maxAttempts - attempts} remaining)")
+                        }
+                    } catch (e: ValidationException) {
+                        attempts++
+                        logger.warn("Response validation failed: ${e.message} (${maxAttempts - attempts} attempts remaining)")
+                    } catch (e: Exception) {
+                        attempts++
+                        logger.error("API request failed: ${e.message} (${maxAttempts - attempts} attempts remaining)")
+                    }
+                }
+
+                if (validFixFound) codeFile.copy(content = fixedContent) else null
             } catch (e: Exception) {
-                logger.error("Fix failed for ${codeFile.path}", e)
-                codeFile  // Return original file on error
+                logger.error("Critical failure fixing ${codeFile.path}", e)
+                codeFile
             }
         }
     }
@@ -190,6 +233,7 @@ class OpenAIClient(private val project: Project) {
             }
 
             val responseBody = response.body?.string() ?: throw IOException("Empty response body")
+            println("Raw response: $responseBody")
             logger.debug("Raw response: $responseBody")
 
             gson.fromJson(responseBody, OpenAIResponse::class.java).also {
@@ -244,7 +288,7 @@ class OpenAIClient(private val project: Project) {
         files: List<InspectionService.CodeFile>
     ): Action {
         val args = gson.fromJson(arguments, ApplyInspectionArgs::class.java)
-        println("Apply inspection: $args")
+        println("Apply inspection: $args, ${files.size}")
         val inspection = InspectionService.getInstance(project).getInspectionById(args.inspection_id)
             ?: return Action.Error("Inspection not found: ${args.inspection_id}")
         InspectionService.getInstance(project).addFilesToInspection(inspection, files)

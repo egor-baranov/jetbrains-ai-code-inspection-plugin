@@ -2,12 +2,19 @@ package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.startup
 
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context.ProjectIndexer
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context.PsiFileRelationService
-import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.psi.ElementUsagesUtil
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService.Companion.logger
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.psi.PsiElement
+import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.psi.search.searches.ReferencesSearch
 import com.intellij.psi.util.elementType
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class CodeInspectionProjectActivity : ProjectActivity {
 
@@ -24,22 +31,39 @@ class CodeInspectionProjectActivity : ProjectActivity {
                 }
             }
 
-            override fun processElement(element: PsiElement) {
-                println("Process element: $element")
-                val usages = ElementUsagesUtil.getUsages(element)
-                if (usages.isNotEmpty()) {
-                    println("Usages for element=$element: ${usages.map { it.containingFile.name }.toSet()}")
-
-                    for (usage in usages) {
-                        if (element.containingFile != usage.containingFile) {
-                            PsiFileRelationService.getInstance(element.project).addRelation(
-                                element.containingFile,
-                                usage.containingFile
-                            )
+            override suspend fun processElement(element: PsiElement) {
+                try {
+                    // Process usages in background thread but wrap PSI access in read actions
+                    val usages = withContext(Dispatchers.Default) {
+                        ApplicationManager.getApplication().runReadAction<Array<PsiElement>> {
+                            ReferencesSearch.search(
+                                element,
+                                GlobalSearchScope.allScope(element.project),
+                                false
+                            ).findAll().map { it.element }.toTypedArray()
                         }
                     }
+
+                    // Process results on EDT with read access
+                    withContext(Dispatchers.EDT) {
+                        ApplicationManager.getApplication().runReadAction {
+                            usages.toList().forEach { usage ->
+                                val containingFile = usage.containingFile
+
+                                if (element.containingFile != containingFile) {
+                                    PsiFileRelationService.getInstance(project).addRelation(
+                                        element.containingFile,
+                                        containingFile
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    logger.error("Error processing usages", e)
                 }
             }
+
 
             override fun onComplete(index: Map<String, PsiElement>) {
                 println("onComplete: $index")
@@ -50,7 +74,9 @@ class CodeInspectionProjectActivity : ProjectActivity {
             }
         }
 
-        indexer.startIndexing(handler = indexingHandler)
-        thisLogger().warn("Don't forget to remove all non-needed sample code files with their corresponding registration entries in `plugin.xml`.")
+        DumbService.getInstance(project).runWhenSmart {
+            indexer.startIndexing(handler = indexingHandler)
+            thisLogger().warn("Don't forget to remove all non-needed sample code files with their corresponding registration entries in `plugin.xml`.")
+        }
     }
 }
