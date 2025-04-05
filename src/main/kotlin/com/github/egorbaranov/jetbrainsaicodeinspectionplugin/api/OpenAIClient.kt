@@ -271,7 +271,11 @@ class OpenAIClient(private val project: Project) {
     private fun handleAddInspection(
         arguments: String,
         files: List<InspectionService.CodeFile>
-    ): Action {
+    ): Action? {
+        if (InspectionService.getInstance(project).inspectionsById.size >= InspectionService.MAX_INSPECTIONS) {
+            return null
+        }
+
         val args = gson.fromJson(arguments, AddInspectionArgs::class.java)
         val inspection = InspectionService.Inspection(
             id = UUID.randomUUID().toString(),

@@ -6,15 +6,19 @@ import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspectio
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.component.SkeletonLoadingComponent
 import com.intellij.diff.DiffContentFactory
 import com.intellij.diff.DiffManager
+import com.intellij.diff.DiffRequestPanel
+import com.intellij.diff.contents.DocumentContentImpl
 import com.intellij.diff.requests.SimpleDiffRequest
 import com.intellij.icons.AllIcons
 import com.intellij.ide.actions.ShowSettingsUtilImpl
+import com.intellij.lang.Language
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.editor.Document
+import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
@@ -57,7 +61,7 @@ class CodeInspectionToolWindow(
         rootPanel = createScrollableContent()
         toolWindow.component.add(rootPanel)
         setupListeners()
-        updateContent()  // Initial content load
+        updateContent()
     }
 
     fun getContent(): JComponent {
@@ -103,7 +107,34 @@ class CodeInspectionToolWindow(
                 }
 
                 override fun inspectionLoading(inspection: InspectionService.Inspection) {
+                    println("inspection loading: $inspection")
                     contentPanel.add(SkeletonLoadingComponent())
+                }
+
+                override fun inspectionLoaded(inspection: InspectionService.Inspection) {
+                    println("inspection loaded: $inspection")
+                    ApplicationManager.getApplication().invokeAndWait {
+                        val componentToRemove = contentPanel.components.firstOrNull {
+                            it is SkeletonLoadingComponent
+                        } ?: return@invokeAndWait
+
+                        contentPanel.remove(componentToRemove)
+                        try {
+                            val codeFiles = InspectionService.getInstance(project).inspectionFiles[inspection]
+                                ?: return@invokeAndWait
+                            contentPanel.add(
+                                createRelationsPanel(
+                                    inspection = inspection,
+                                    affectedFiles = codeFiles
+                                )
+                            )
+                        } catch (e: Throwable) {
+                            thisLogger().error("Failed to update content", e)
+                        }
+
+                        contentPanel.revalidate()
+                        contentPanel.repaint()
+                    }
                 }
 
                 override fun removeInspection(inspection: InspectionService.Inspection) {}
@@ -183,6 +214,13 @@ class CodeInspectionToolWindow(
             it.putClientProperty("JButton.buttonType", "square")
             it.preferredSize = Dimension(40, 40)
             it.cursor = Cursor(Cursor.HAND_CURSOR)
+            it.addMouseListener(
+                object : MouseAdapter() {
+                    override fun mouseClicked(e: MouseEvent?) {
+                        InspectionService.getInstance(project).cancelTasks()
+                    }
+                }
+            )
         }
 
         val clearAllButton = JButton().also {
@@ -354,7 +392,9 @@ class CodeInspectionToolWindow(
                     println("Affected files size: ${item.affectedFiles.size}")
 
                     item.affectedFiles.forEach { codeFile ->
-                        val psiFile = codeFile.virtualFile()?.findPsiFile(project)
+                        val psiFile = ReadAction.compute<PsiFile?, Throwable> {
+                            codeFile.virtualFile()?.findPsiFile(project)
+                        }
 
                         if (psiFile != null) {
                             add(createDetailItem(psiFile, item.inspection, codeFile, rootContent))
@@ -463,18 +503,36 @@ class CodeInspectionToolWindow(
                 val modifiedContent = codeFile.content
 
                 val contentFactory = DiffContentFactory.getInstance()
-                val language = PsiUtilCore.getLanguageAtOffset(psiFile.containingFile, psiFile.textOffset)
+                val language = ReadAction.compute<Language, Throwable> {
+                    PsiUtilCore.getLanguageAtOffset(psiFile.containingFile, psiFile.textOffset)
+                }
                 val fileType = language.associatedFileType ?: PlainTextFileType.INSTANCE
                 val contentLeft = contentFactory.create(originalContent, fileType)
-                val contentRight = contentFactory.create(modifiedContent, fileType)
+                val contentRight = EditorFactory.getInstance().createDocument(modifiedContent)
 
-                val diffRequest = SimpleDiffRequest("Code Changes", contentLeft, contentRight, "Original", "Modified")
-                val diffPanel = DiffManager.getInstance().createRequestPanel(project, project, null)
-                diffPanel.setRequest(diffRequest)
-                diffPanel.component.isOpaque = false
+                val diffRequest = SimpleDiffRequest(
+                    "Code Changes",
+                    contentLeft,
+                    DocumentContentImpl(contentRight),
+                    "Original",
+                    "Modified"
+                )
+                var diffPanel: DiffRequestPanel? = null
 
-                val diffPanelComponent = diffPanel.component
-                diffPanelComponent.isVisible = false
+// Create the panel on the EDT
+                ApplicationManager.getApplication().invokeAndWait {
+                    diffPanel = DiffManager.getInstance().createRequestPanel(project, project, null)
+                }
+
+// Set the diff request (also on EDT)
+                ApplicationManager.getApplication().invokeLater {
+                    diffPanel?.setRequest(diffRequest)
+                    // Add the panel to your UI container here
+                }
+                diffPanel?.component?.isOpaque = false
+
+                val diffPanelComponent = diffPanel?.component
+                diffPanelComponent?.isVisible = false
 
                 // Open file button
                 val reloadButton = JLabel(AllIcons.Actions.Refresh).apply {
@@ -487,12 +545,12 @@ class CodeInspectionToolWindow(
                                 inspection = inspection,
                                 codeFiles = listOf(codeFile)
                             ) {
-                                val updatedContent = it.first().content
+                                val updatedContent = it.firstOrNull()?.content ?: return@performFixWithProgress
                                 ApplicationManager.getApplication().invokeLater {
 
                                     // TODO: fires exception!!
                                     WriteCommandAction.runWriteCommandAction(project) {
-                                        contentRight.document.setText(updatedContent)
+                                        contentRight.setText(updatedContent)
                                     }
                                 }
                             }
@@ -536,13 +594,13 @@ class CodeInspectionToolWindow(
                 val expandButton = JLabel(AllIcons.Actions.Expandall).apply {
                     val button = this
                     cursor = Cursor(Cursor.HAND_CURSOR)
-                    icon = getToggleIcon(diffPanelComponent.isVisible)
+                    icon = getToggleIcon(diffPanelComponent?.isVisible ?: false)
                     toolTipText = "Expand diff for ${psiFile.name}"
                     border = JBUI.Borders.empty(4)
                     addMouseListener(object : MouseAdapter() {
                         override fun mouseClicked(e: MouseEvent?) {
-                            diffPanelComponent.isVisible = !diffPanelComponent.isVisible
-                            button.icon = getToggleIcon(diffPanelComponent.isVisible)
+                            diffPanelComponent?.isVisible = !(diffPanelComponent?.isVisible ?: false)
+                            button.icon = getToggleIcon(diffPanelComponent?.isVisible ?: false)
                             revalidate()
                             repaint()
                         }

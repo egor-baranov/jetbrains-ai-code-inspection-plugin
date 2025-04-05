@@ -25,6 +25,8 @@ class InspectionService(private val project: Project) : PersistentStateComponent
     val inspectionsById = ConcurrentHashMap<String, Inspection>()
     val inspectionFiles = ConcurrentHashMap<Inspection, MutableList<CodeFile>>()
 
+    val tasks = mutableListOf<Task>()
+
     // Inspection management
     fun putInspection(inspection: Inspection, files: List<CodeFile>) {
         inspectionsById[inspection.id] = inspection
@@ -55,17 +57,20 @@ class InspectionService(private val project: Project) : PersistentStateComponent
     ) {
         val existingFiles = inspectionFiles[inspection]?.map { it.path }?.toSet().orEmpty()
         val filteredFiles = files.filter { !existingFiles.contains(it.path) }
-        if (filteredFiles.size < 2) return
+
+        if (inspectionFiles[inspection] == null) {
+            inspectionFiles[inspection] = mutableListOf()
+        }
 
         inspectionLoading(inspection)
 
         performFixWithProgress(inspection, filteredFiles) {
             println("added files to inspection: ${filteredFiles.size}}")
+            println("Filtered files size: ${filteredFiles.size}")
+
             synchronized(inspectionFiles) {
-                if (inspectionFiles[inspection] == null) {
-                    inspectionFiles[inspection] = mutableListOf()
-                }
                 inspectionFiles[inspection]?.addAll(it)
+                inspectionLoaded(inspection)
             }
         }
     }
@@ -74,7 +79,7 @@ class InspectionService(private val project: Project) : PersistentStateComponent
         inspection: Inspection,
         codeFiles: List<CodeFile>,
         onPerformed: ((List<CodeFile>) -> Unit)? = null
-    ) {
+    ): Task {
         val fixedFiles = mutableListOf<CodeFile>()
         val task = object : Task.Backgroundable(
             project,
@@ -104,12 +109,20 @@ class InspectionService(private val project: Project) : PersistentStateComponent
                     onPerformed?.let {
                         it(fixedFiles)
                     }
-                    notifyInspectionsChanged()
                 }
             }
         }
 
+        tasks.add(task)
         ProgressManager.getInstance().run(task)
+        return task
+    }
+
+    fun cancelTasks() {
+        tasks.forEach {
+            it.onCancel()
+        }
+        tasks.clear()
     }
 
     fun getFilesForInspection(inspection: Inspection): List<CodeFile> =
@@ -117,6 +130,10 @@ class InspectionService(private val project: Project) : PersistentStateComponent
 
     fun inspectionLoading(inspection: Inspection) {
         project.messageBus.syncPublisher(INSPECTION_CHANGE_TOPIC).inspectionLoading(inspection)
+    }
+
+    fun inspectionLoaded(inspection: Inspection) {
+        project.messageBus.syncPublisher(INSPECTION_CHANGE_TOPIC).inspectionLoaded(inspection)
     }
 
     fun removeInspection(inspection: Inspection) {
@@ -217,6 +234,8 @@ class InspectionService(private val project: Project) : PersistentStateComponent
     interface InspectionChangeListener {
         fun inspectionLoading(inspection: Inspection)
 
+        fun inspectionLoaded(inspection: Inspection)
+
         fun inspectionsChanged()
 
         fun removeInspection(inspection: Inspection)
@@ -230,6 +249,7 @@ class InspectionService(private val project: Project) : PersistentStateComponent
         }
 
         val logger = LoggerFactory.getLogger(InspectionService::class.java)
+        const val MAX_INSPECTIONS = 5
 
         val INSPECTION_CHANGE_TOPIC = Topic.create(
             "AI Code Inspections Changed",

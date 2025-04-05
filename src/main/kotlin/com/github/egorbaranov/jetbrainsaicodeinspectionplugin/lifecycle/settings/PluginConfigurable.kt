@@ -25,7 +25,7 @@ class PluginConfigurable : SearchableConfigurable {
         textField = JBTextField(settings.someSetting, 20)
         
         mySettingsComponent = FormBuilder.createFormBuilder()
-            .addLabeledComponent("Example Setting:", textField!!)
+            .addLabeledComponent("OpenAI API key:", textField!!)
             .panel
         return mySettingsComponent!!
     }

@@ -124,8 +124,8 @@ class RelationsAnalyzerTask(
             onProgressUpdate: (String) -> Unit = {},
             onComplete: () -> Unit = {},
             onError: (Throwable) -> Unit = {}
-        ) {
-            RelationsAnalyzerTask(project, onProgressUpdate, onComplete, onError).queue()
+        ): Task = RelationsAnalyzerTask(project, onProgressUpdate, onComplete, onError).also {
+            it.queue()
         }
     }
 }
