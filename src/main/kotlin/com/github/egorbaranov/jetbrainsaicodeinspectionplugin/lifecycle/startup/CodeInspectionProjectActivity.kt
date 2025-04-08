@@ -3,6 +3,7 @@ package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.startup
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context.ProjectIndexer
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context.PsiFileRelationService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService.Companion.logger
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.MetricService
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.diagnostic.thisLogger
@@ -60,6 +61,7 @@ class CodeInspectionProjectActivity : ProjectActivity {
                         }
                     }
                 } catch (e: Exception) {
+                    MetricService.getInstance(project).error(e)
                     logger.error("Error processing usages", e)
                 }
             }

@@ -1,6 +1,7 @@
 package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api
 
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.MetricService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.storage.OpenAIKeyStorage
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.http.RateLimitingInterceptor
 import com.google.gson.Gson
@@ -34,17 +35,20 @@ class OpenAIClient(private val project: Project) {
     fun analyzeFiles(
         files: List<InspectionService.CodeFile>
     ): AnalysisResult {
+        val inspections = InspectionService.getInstance(project).getInspections()
         val messages = createMessages(
             files,
-            InspectionService.getInstance(project).getInspections()
+            inspections
         )
-        val tools = createTools()
+
+        val tools = createTools(inspections.size < MAX_INSPECTIONS)
 
         return try {
             val response = executeOpenAIRequest(messages, tools)
             processToolCalls(response, files)
         } catch (e: Exception) {
             logger.error("Analysis failed", e)
+            MetricService.getInstance(project).error(e)
             AnalysisResult(error = "Analysis failed: ${e.message}")
         }
     }
@@ -103,15 +107,18 @@ class OpenAIClient(private val project: Project) {
                         }
                     } catch (e: ValidationException) {
                         attempts++
+                        MetricService.getInstance(project).error(e)
                         logger.warn("Response validation failed: ${e.message} (${maxAttempts - attempts} attempts remaining)")
                     } catch (e: Exception) {
                         attempts++
+                        MetricService.getInstance(project).error(e)
                         logger.error("API request failed: ${e.message} (${maxAttempts - attempts} attempts remaining)")
                     }
                 }
 
                 if (validFixFound) codeFile.copy(content = fixedContent) else null
             } catch (e: Exception) {
+                MetricService.getInstance(project).error(e)
                 logger.error("Critical failure fixing ${codeFile.path}", e)
                 codeFile
             }
@@ -151,7 +158,7 @@ class OpenAIClient(private val project: Project) {
         )
     }
 
-    private fun createTools(): List<JsonObject> = listOf(
+    private fun createTools(useAddInspectionTool: Boolean): List<JsonObject> = listOfNotNull(
         createTool(
             name = "add_inspection",
             description = "Create new code inspection finding for all analyzed files",
@@ -166,7 +173,7 @@ class OpenAIClient(private val project: Project) {
                 })
                 add("required", gson.toJsonTree(listOf("description", "fix_prompt")))
             }
-        ),
+        ).takeIf { useAddInspectionTool },
         createTool(
             name = "apply_inspection",
             description = "Apply existing inspection to current files",
@@ -256,6 +263,7 @@ class OpenAIClient(private val project: Project) {
                         else -> null
                     }
                 } catch (e: Exception) {
+                    MetricService.getInstance(project).error(e)
                     logger.error("Failed to process tool call", e)
                     Action.Error("Failed to process ${toolCall.function.name}: ${e.message}")
                 }
@@ -301,6 +309,7 @@ class OpenAIClient(private val project: Project) {
 
     private fun handleRequestContext(arguments: String): Action {
         val args = gson.fromJson(arguments, RequestContextArgs::class.java)
+        println("requesting extra context: $arguments")
         return Action.RequestContext(contextType = args.context_type)
     }
 
@@ -377,6 +386,9 @@ class OpenAIClient(private val project: Project) {
     )
 
     companion object {
+
+        const val MAX_INSPECTIONS = 10
+
         fun getInstance(project: Project): OpenAIClient {
             return project.service()
         }

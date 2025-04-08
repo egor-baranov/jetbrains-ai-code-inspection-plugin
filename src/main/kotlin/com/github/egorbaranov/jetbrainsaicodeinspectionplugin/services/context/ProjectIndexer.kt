@@ -1,5 +1,6 @@
 package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context
 
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.MetricService
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.progress.ProcessCanceledException
@@ -51,8 +52,10 @@ class ProjectIndexer(private val project: Project) {
                         processProject(handler, indicator)
                         handler.onComplete(indexData.toMap())
                     } catch (e: ProcessCanceledException) {
+                        MetricService.getInstance(project).error(e)
                         logger.info("Indexing cancelled")
                     } catch (e: Exception) {
+                        MetricService.getInstance(project).error(e)
                         handler.onError(e)
                     } finally {
                         isIndexing.set(false)
@@ -136,6 +139,7 @@ class ProjectIndexer(private val project: Project) {
             try {
                 handler.processElement(element)
             } catch (e: Exception) {
+                MetricService.getInstance(project).error(e)
                 logger.error("Error processing element", e)
             }
         }

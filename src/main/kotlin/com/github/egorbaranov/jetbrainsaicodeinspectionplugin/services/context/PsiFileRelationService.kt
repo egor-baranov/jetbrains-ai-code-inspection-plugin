@@ -1,5 +1,6 @@
 package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context
 
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.MetricService
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.components.*
 import com.intellij.openapi.diagnostic.thisLogger
@@ -55,6 +56,7 @@ class PsiFileRelationService : PersistentStateComponent<Element> {
                 ?.let { PsiManager.getInstance(project).findFile(it) }
                 ?.takeIf { it.isValid }
         } catch (e: Exception) {
+            MetricService.getInstance(project).error(e)
             null
         }
     }

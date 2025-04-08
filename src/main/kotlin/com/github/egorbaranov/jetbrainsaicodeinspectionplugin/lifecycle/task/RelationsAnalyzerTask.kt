@@ -3,6 +3,7 @@ package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.task
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.OpenAIClient
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context.PsiFileRelationService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.MetricService
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressIndicator
@@ -29,8 +30,10 @@ class RelationsAnalyzerTask(
             val relations = readRelations()
             processRelations(relations, indicator)
         } catch (e: ProcessCanceledException) {
+            MetricService.getInstance(project).error(e)
             handleCancellation()
         } catch (e: Exception) {
+            MetricService.getInstance(project).error(e)
             handleError(e)
         } finally {
             application.invokeLater(onComplete)
@@ -59,6 +62,7 @@ class RelationsAnalyzerTask(
                     processFileRelation(file, relatedFiles, indicator)
                     processed.incrementAndGet()
                 } catch (e: Exception) {
+                    MetricService.getInstance(project).error(e)
                     handleError(e)
                 }
             }, currentDelay, TimeUnit.MILLISECONDS)
@@ -111,6 +115,7 @@ class RelationsAnalyzerTask(
     private fun handleError(e: Throwable) {
         application.invokeLater {
             onError(e)
+            MetricService.getInstance(project).error(e)
             Messages.showErrorDialog(
                 "Analysis failed: ${e.message}",
                 "Error"

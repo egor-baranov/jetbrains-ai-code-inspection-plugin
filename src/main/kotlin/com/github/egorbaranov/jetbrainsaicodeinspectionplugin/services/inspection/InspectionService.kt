@@ -1,6 +1,7 @@
 package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection
 
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.OpenAIClient
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.MetricService
 import com.intellij.openapi.components.*
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.progress.ProcessCanceledException
@@ -55,6 +56,17 @@ class InspectionService(private val project: Project) : PersistentStateComponent
         files: List<CodeFile>,
         onPerformed: ((List<CodeFile>) -> Unit)? = null
     ) {
+//        val existingFiles = synchronized(inspectionFiles) {
+//            inspectionFiles[inspection]?.map { it.path }?.toSet().orEmpty()
+//        }
+
+//        val filteredFiles = files.filter { !existingFiles.contains(it.path) }
+//        synchronized(inspectionFiles) {
+//            if (inspectionFiles[inspection] == null) {
+//                inspectionFiles[inspection] = mutableListOf()
+//            }
+//        }
+
         val existingFiles = inspectionFiles[inspection]?.map { it.path }?.toSet().orEmpty()
         val filteredFiles = files.filter { !existingFiles.contains(it.path) }
 
@@ -63,13 +75,14 @@ class InspectionService(private val project: Project) : PersistentStateComponent
         }
 
         inspectionLoading(inspection)
-
         performFixWithProgress(inspection, filteredFiles) {
             println("added files to inspection: ${filteredFiles.size}}")
             println("Filtered files size: ${filteredFiles.size}")
 
             synchronized(inspectionFiles) {
-                inspectionFiles[inspection]?.addAll(it)
+                val existing = inspectionFiles[inspection]?.map { it.path }?.toSet().orEmpty()
+                val filtered = it.filter { !existing.contains(it.path) }
+                inspectionFiles[inspection]?.addAll(filtered)
                 inspectionLoaded(inspection)
             }
         }
@@ -96,8 +109,10 @@ class InspectionService(private val project: Project) : PersistentStateComponent
 
                     thisLogger().info("Added ${fixedFiles.size} fixed files to inspection ${inspection.id}")
                 } catch (e: ProcessCanceledException) {
+                    MetricService.getInstance(project).error(e)
                     thisLogger().warn("Processing canceled for inspection ${inspection.id}")
                 } catch (e: Exception) {
+                    MetricService.getInstance(project).error(e)
                     thisLogger().error("Failed to process files for inspection ${inspection.id}", e)
                     SwingUtilities.invokeLater {
                         Messages.showErrorDialog(
@@ -177,9 +192,9 @@ class InspectionService(private val project: Project) : PersistentStateComponent
 
         state.children.forEach { inspectionElement ->
             val inspection = Inspection(
-                id = inspectionElement.getAttributeValue("id") ?: "",
-                description = inspectionElement.getAttributeValue("description") ?: "",
-                fixPrompt = inspectionElement.getAttributeValue("fixPrompt") ?: ""
+                id = inspectionElement.getAttributeValue("id").orEmpty(),
+                description = inspectionElement.getAttributeValue("description").orEmpty(),
+                fixPrompt = inspectionElement.getAttributeValue("fixPrompt").orEmpty()
             )
 
             inspectionsById[inspection.id] = inspection

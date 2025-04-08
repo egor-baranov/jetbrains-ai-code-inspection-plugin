@@ -3,7 +3,10 @@ package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.toolWindow
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.task.RelationsAnalyzerTask
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context.PsiFileRelationService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.Metric
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.MetricService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.component.SkeletonLoadingComponent
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.UIUtils.createRoundedBorder
 import com.intellij.diff.DiffContentFactory
 import com.intellij.diff.DiffManager
 import com.intellij.diff.DiffRequestPanel
@@ -43,8 +46,6 @@ import java.awt.*
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.*
-import javax.swing.border.AbstractBorder
-import javax.swing.border.Border
 
 class CodeInspectionToolWindow(
     private val toolWindow: ToolWindow
@@ -129,6 +130,7 @@ class CodeInspectionToolWindow(
                                 )
                             )
                         } catch (e: Throwable) {
+                            MetricService.getInstance(project).error(e)
                             thisLogger().error("Failed to update content", e)
                         }
 
@@ -195,6 +197,8 @@ class CodeInspectionToolWindow(
             it.addMouseListener(
                 object : MouseAdapter() {
                     override fun mouseClicked(e: MouseEvent?) {
+                        MetricService.getInstance(project).collect(Metric.MetricID.EXECUTE)
+
                         println(
                             "Project file graph: ${
                                 PsiFileRelationService.getInstance(project).getRelations(project).map {
@@ -217,6 +221,7 @@ class CodeInspectionToolWindow(
             it.addMouseListener(
                 object : MouseAdapter() {
                     override fun mouseClicked(e: MouseEvent?) {
+                        MetricService.getInstance(project).collect(Metric.MetricID.INTERRUPT)
                         InspectionService.getInstance(project).cancelTasks()
                     }
                 }
@@ -231,6 +236,7 @@ class CodeInspectionToolWindow(
             it.addMouseListener(
                 object : MouseAdapter() {
                     override fun mouseClicked(e: MouseEvent?) {
+                        MetricService.getInstance(project).collect(Metric.MetricID.CLEAR_ALL)
                         InspectionService.getInstance(project).clearState()
                         updateContent()
                     }
@@ -246,6 +252,7 @@ class CodeInspectionToolWindow(
             it.addMouseListener(
                 object : MouseAdapter() {
                     override fun mouseClicked(e: MouseEvent?) {
+                        MetricService.getInstance(project).collect(Metric.MetricID.SETTINGS)
                         ShowSettingsUtilImpl.showSettingsDialog(
                             project,
                             "ai.code.inspection.settings", // Match the ID from plugin.xml
@@ -278,8 +285,11 @@ class CodeInspectionToolWindow(
             }
         )
 
+
         try {
             val inspections = InspectionService.getInstance(project).inspectionFiles
+            println("All inspections: ${inspections.size}")
+
             inspections.forEach { (inspection, affectedFiles) ->
                 contentPanel.add(
                     createRelationsPanel(
@@ -289,6 +299,7 @@ class CodeInspectionToolWindow(
                 )
             }
         } catch (e: Throwable) {
+            MetricService.getInstance(project).error(e)
             thisLogger().error("Failed to update content", e)
         }
 
@@ -348,6 +359,7 @@ class CodeInspectionToolWindow(
                     addMouseListener(object : MouseAdapter() {
                         override fun mouseClicked(e: MouseEvent?) {
                             println("remove inspection: ${item.inspection}")
+                            MetricService.getInstance(project).collect(Metric.MetricID.DELETE_INSPECTION)
                             InspectionService.getInstance(project).removeInspection(item.inspection)
                             contentPanel.remove(collapsiblePanel)
                         }
@@ -415,6 +427,8 @@ class CodeInspectionToolWindow(
                             addMouseListener(
                                 object : MouseAdapter() {
                                     override fun mouseClicked(e: MouseEvent?) {
+                                        MetricService.getInstance(project).collect(Metric.MetricID.APPLY_FIX)
+
                                         ApplicationManager.getApplication().executeOnPooledThread {
                                             val filesToUpdate = item.affectedFiles.mapNotNull { codeFile ->
                                                 ReadAction.compute<Pair<Document?, String>?, Throwable> {
@@ -437,7 +451,9 @@ class CodeInspectionToolWindow(
                         val ignoreButton = JButton("Ignore").apply {
                             isOpaque = false
                             addActionListener {
+                                MetricService.getInstance(project).collect(Metric.MetricID.IGNORE_FIX)
                                 InspectionService.getInstance(project).removeInspection(inspection = item.inspection)
+                                contentPanel.remove(collapsiblePanel)
                             }
                         }
 
@@ -541,6 +557,7 @@ class CodeInspectionToolWindow(
                     border = JBUI.Borders.empty(4)
                     addMouseListener(object : MouseAdapter() {
                         override fun mouseClicked(e: MouseEvent?) {
+                            MetricService.getInstance(project).collect(Metric.MetricID.RELOAD)
                             InspectionService.getInstance(project).performFixWithProgress(
                                 inspection = inspection,
                                 codeFiles = listOf(codeFile)
@@ -566,6 +583,7 @@ class CodeInspectionToolWindow(
                     addMouseListener(object : MouseAdapter() {
                         override fun mouseClicked(e: MouseEvent?) {
                             if (psiFile.isValid && !psiFile.project.isDisposed) {
+                                MetricService.getInstance(project).collect(Metric.MetricID.OPEN_FILE)
                                 FileEditorManager.getInstance(psiFile.project).openFile(
                                     psiFile.virtualFile,
                                     true, // request focus
@@ -582,6 +600,7 @@ class CodeInspectionToolWindow(
                     border = JBUI.Borders.empty(4)
                     addMouseListener(object : MouseAdapter() {
                         override fun mouseClicked(e: MouseEvent?) {
+                            MetricService.getInstance(project).collect(Metric.MetricID.DELETE_FILE)
                             InspectionService.getInstance(project).removeFileFromInspection(
                                 inspection,
                                 codeFile
@@ -599,6 +618,7 @@ class CodeInspectionToolWindow(
                     border = JBUI.Borders.empty(4)
                     addMouseListener(object : MouseAdapter() {
                         override fun mouseClicked(e: MouseEvent?) {
+                            MetricService.getInstance(project).collect(Metric.MetricID.EXPAND)
                             diffPanelComponent?.isVisible = !(diffPanelComponent?.isVisible ?: false)
                             button.icon = getToggleIcon(diffPanelComponent?.isVisible ?: false)
                             revalidate()
@@ -642,23 +662,6 @@ class CodeInspectionToolWindow(
                     g2d.dispose()
                 }
             }
-        }
-    }
-
-    private fun createRoundedBorder(): Border {
-        return object : AbstractBorder() {
-            private val arc = JBUI.scale(16)
-            private val insets = JBUI.insets(4)
-
-            override fun paintBorder(c: Component, g: Graphics, x: Int, y: Int, width: Int, height: Int) {
-                val g2d = g.create() as Graphics2D
-                g2d.color = JBColor.PanelBackground.brighter()
-                g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-                g2d.drawRoundRect(x, y, width - 1, height - 1, arc, arc)
-                g2d.dispose()
-            }
-
-            override fun getBorderInsets(c: Component): Insets = insets
         }
     }
 

@@ -1,5 +1,6 @@
 package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.quickfixes
 
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.MetricService
 import com.intellij.codeInspection.LocalQuickFix
 import com.intellij.codeInspection.ProblemDescriptor
 import com.intellij.openapi.application.ApplicationManager
@@ -20,6 +21,7 @@ class ComplexityQuickFix(private val element: PsiElement) : LocalQuickFix {
             try {
                 processRefactoring(project, dialog)
             } catch (e: Exception) {
+                MetricService.getInstance(project).error(e)
                 handleError(dialog, e)
             }
         }
