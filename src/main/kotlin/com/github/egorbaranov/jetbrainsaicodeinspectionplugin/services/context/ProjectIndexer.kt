@@ -22,8 +22,6 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
-private val logger = logger<ProjectIndexer>()
-
 class ProjectIndexer(private val project: Project) {
     private val isIndexing = AtomicBoolean(false)
     private val indexData = ConcurrentHashMap<String, PsiElement>()
@@ -153,11 +151,14 @@ class ProjectIndexer(private val project: Project) {
     fun isIndexing() = isIndexing.get()
 
     private fun calculateProgress(file: PsiFile): Double {
-        // Implement actual progress calculation logic
         return (indexData.size % 100) / 100.0
     }
 
     private inline fun <T> readAction(noinline action: () -> T): T {
         return ApplicationManager.getApplication().runReadAction<T>(action)
+    }
+
+    companion object {
+        private val logger = logger<ProjectIndexer>()
     }
 }

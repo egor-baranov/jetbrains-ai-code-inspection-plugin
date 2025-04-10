@@ -64,7 +64,3 @@ class SkeletonLoadingComponent() : JPanel() {
         stopAnimation()
     }
 }
-
-// Usage example:
-// val loadingComponent = SkeletonLoadingComponent(itemCount = 3)
-// mainPanel.add(loadingComponent, BorderLayout.CENTER)

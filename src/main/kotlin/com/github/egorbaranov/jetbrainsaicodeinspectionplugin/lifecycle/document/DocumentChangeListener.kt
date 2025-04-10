@@ -8,11 +8,10 @@ import java.util.concurrent.ScheduledFuture
 class DocumentChangeListener : DocumentListener {
     private val scheduler = Executors.newScheduledThreadPool(1)
     private var scheduledAnalysis: ScheduledFuture<*>? = null
-    private val debounceDelay = 2000L // 2 seconds delay
+    private val debounceDelay = 2000L
 
     override fun documentChanged(event: DocumentEvent) {
         println("document changed: $event")
-        // Cancel previous scheduled task
         scheduledAnalysis?.cancel(false)
     }
 }

@@ -26,7 +26,7 @@ class InspectionService(private val project: Project) : PersistentStateComponent
     val inspectionsById = ConcurrentHashMap<String, Inspection>()
     val inspectionFiles = ConcurrentHashMap<Inspection, MutableList<CodeFile>>()
 
-    val tasks = mutableListOf<Task>()
+    private val tasks = mutableListOf<Task>()
 
     // Inspection management
     fun putInspection(inspection: Inspection, files: List<CodeFile>) {
@@ -56,17 +56,6 @@ class InspectionService(private val project: Project) : PersistentStateComponent
         files: List<CodeFile>,
         onPerformed: ((List<CodeFile>) -> Unit)? = null
     ) {
-//        val existingFiles = synchronized(inspectionFiles) {
-//            inspectionFiles[inspection]?.map { it.path }?.toSet().orEmpty()
-//        }
-
-//        val filteredFiles = files.filter { !existingFiles.contains(it.path) }
-//        synchronized(inspectionFiles) {
-//            if (inspectionFiles[inspection] == null) {
-//                inspectionFiles[inspection] = mutableListOf()
-//            }
-//        }
-
         val existingFiles = inspectionFiles[inspection]?.map { it.path }?.toSet().orEmpty()
         val filteredFiles = files.filter { !existingFiles.contains(it.path) }
 

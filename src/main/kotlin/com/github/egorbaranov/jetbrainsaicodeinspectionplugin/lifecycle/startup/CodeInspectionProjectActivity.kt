@@ -34,7 +34,6 @@ class CodeInspectionProjectActivity : ProjectActivity {
 
             override suspend fun processElement(element: PsiElement) {
                 try {
-                    // Process usages in background thread but wrap PSI access in read actions
                     val usages = withContext(Dispatchers.Default) {
                         ApplicationManager.getApplication().runReadAction<Array<PsiElement>> {
                             ReferencesSearch.search(
@@ -45,7 +44,6 @@ class CodeInspectionProjectActivity : ProjectActivity {
                         }
                     }
 
-                    // Process results on EDT with read access
                     withContext(Dispatchers.EDT) {
                         ApplicationManager.getApplication().runReadAction {
                             usages.toList().forEach { usage ->

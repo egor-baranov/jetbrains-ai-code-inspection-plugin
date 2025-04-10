@@ -80,7 +80,6 @@ class CodeInspectionToolWindow(
     }
 
     private fun setupListeners() {
-        // Listen for file selection changes
         project.messageBus.connect(disposer).subscribe(
             FileEditorManagerListener.FILE_EDITOR_MANAGER,
             object : FileEditorManagerListener {
@@ -89,7 +88,6 @@ class CodeInspectionToolWindow(
                 }
             })
 
-        // Listen for relation changes
         project.messageBus.connect(disposer).subscribe(
             PsiFileRelationService.RELATION_CHANGE_TOPIC,
             object : PsiFileRelationService.RelationChangeListener {
@@ -161,31 +159,25 @@ class CodeInspectionToolWindow(
         RelationsAnalyzerTask.execute(
             project = project,
             onProgressUpdate = { status ->
-                // Update UI with current status
                 println("Analyze progress: $status")
             },
             onComplete = {
-                // Handle completion
                 println("Analysis completed successfully")
             },
             onError = { error ->
-                // Handle errors
                 println("Handled error: $error")
             }
         )
     }
 
     private fun updateContent() {
-        // Always check if we're already on EDT
         if (!ApplicationManager.getApplication().isDispatchThread) {
             ApplicationManager.getApplication().invokeLater({ updateContent() }, ModalityState.defaultModalityState())
             return
         }
 
-        // Verify component validity
         if (project.isDisposed || !toolWindow.component.isShowing) return
 
-        // Clear and rebuild content safely
         contentPanel.removeAll()
         println("Update content: ${InspectionService.getInstance(project).inspectionFiles.size}")
 
@@ -198,15 +190,6 @@ class CodeInspectionToolWindow(
                 object : MouseAdapter() {
                     override fun mouseClicked(e: MouseEvent?) {
                         MetricService.getInstance(project).collect(Metric.MetricID.EXECUTE)
-
-                        println(
-                            "Project file graph: ${
-                                PsiFileRelationService.getInstance(project).getRelations(project).map {
-                                    "${it.key.name} : ${it.value.size}"
-                                }
-                            }"
-                        )
-
                         analyzeRelationsWithProgress(project)
                     }
                 }
@@ -337,14 +320,12 @@ class CodeInspectionToolWindow(
                 val collapsiblePanel = this
                 isOpaque = false
 
-                // Rounded border
                 border = BorderFactory.createCompoundBorder(
                     createRoundedBorder(),
                     JBUI.Borders.empty(4)
                 )
 
                 val titleLabel = JBLabel("${item.inspection.description} (${item.affectedFiles.size})").apply {
-//                    icon = item.title.fileType.icon
                     font = JBUI.Fonts.label().deriveFont(14f)
                     border = JBUI.Borders.emptyLeft(10)
                 }
@@ -374,7 +355,6 @@ class CodeInspectionToolWindow(
                     add(deleteLabel, BorderLayout.EAST)
                 }
 
-                // Content
                 val content = JBPanel<JBPanel<*>>(VerticalLayout(JBUI.scale(4))).apply {
                     val rootContent = this
                     border = JBUI.Borders.empty(4)
@@ -464,7 +444,6 @@ class CodeInspectionToolWindow(
                     add(buttonPanel)
                 }
 
-                // Click listener
                 header.addMouseListener(
                     object : MouseAdapter() {
                         override fun mouseClicked(e: MouseEvent?) {
@@ -535,22 +514,18 @@ class CodeInspectionToolWindow(
                 )
                 var diffPanel: DiffRequestPanel? = null
 
-// Create the panel on the EDT
                 ApplicationManager.getApplication().invokeAndWait {
                     diffPanel = DiffManager.getInstance().createRequestPanel(project, project, null)
                 }
 
-// Set the diff request (also on EDT)
                 ApplicationManager.getApplication().invokeLater {
                     diffPanel?.setRequest(diffRequest)
-                    // Add the panel to your UI container here
                 }
                 diffPanel?.component?.isOpaque = false
 
                 val diffPanelComponent = diffPanel?.component
                 diffPanelComponent?.isVisible = false
 
-                // Open file button
                 val reloadButton = JLabel(AllIcons.Actions.Refresh).apply {
                     cursor = Cursor(Cursor.HAND_CURSOR)
                     toolTipText = "Open ${psiFile.name}"
@@ -564,8 +539,6 @@ class CodeInspectionToolWindow(
                             ) {
                                 val updatedContent = it.firstOrNull()?.content ?: return@performFixWithProgress
                                 ApplicationManager.getApplication().invokeLater {
-
-                                    // TODO: fires exception!!
                                     WriteCommandAction.runWriteCommandAction(project) {
                                         contentRight.setText(updatedContent)
                                     }
@@ -575,7 +548,6 @@ class CodeInspectionToolWindow(
                     })
                 }
 
-                // Open file button
                 val openButton = JLabel(AllIcons.Actions.OpenNewTab).apply {
                     cursor = Cursor(Cursor.HAND_CURSOR)
                     toolTipText = "Open ${psiFile.name}"
@@ -586,9 +558,9 @@ class CodeInspectionToolWindow(
                                 MetricService.getInstance(project).collect(Metric.MetricID.OPEN_FILE)
                                 FileEditorManager.getInstance(psiFile.project).openFile(
                                     psiFile.virtualFile,
-                                    true, // request focus
-                                    true //
-                                )// open in current window
+                                    true,
+                                    true
+                                )
                             }
                         }
                     })

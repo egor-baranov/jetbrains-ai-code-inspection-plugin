@@ -2,7 +2,6 @@ package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.task
 
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.OpenAIClient
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context.PsiFileRelationService
-import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.MetricService
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.progress.ProcessCanceledException
@@ -46,7 +45,10 @@ class RelationsAnalyzerTask(
         }
     }
 
-    private fun processRelations(relations: Map<PsiFile, List<PsiFile>>, indicator: ProgressIndicator) {
+    private fun processRelations(
+        relations: Map<PsiFile, List<PsiFile>>,
+        indicator: ProgressIndicator
+    ) {
         val total = relations.size
         val processed = AtomicInteger(0)
         val scheduler = AppExecutorUtil.getAppScheduledExecutorService()
@@ -59,7 +61,7 @@ class RelationsAnalyzerTask(
             scheduler.schedule({
                 try {
                     updateProgress(indicator, file.name, processed.get(), total)
-                    processFileRelation(file, relatedFiles, indicator)
+                    processFile(file, relatedFiles, indicator)
                     processed.incrementAndGet()
                 } catch (e: Exception) {
                     MetricService.getInstance(project).error(e)
@@ -72,29 +74,23 @@ class RelationsAnalyzerTask(
     }
 
 
-    private fun processFileRelation(file: PsiFile, relatedFiles: List<PsiFile>, indicator: ProgressIndicator) {
-        application.runReadAction {
-            val codeFiles = createCodeFiles(file, relatedFiles)
-            analyzeWithOpenAI(codeFiles, indicator)
-        }
-    }
-
-    private fun createCodeFiles(file: PsiFile, relatedFiles: List<PsiFile>): List<InspectionService.CodeFile> {
-        return (listOf(file) + relatedFiles).map {
-            InspectionService.CodeFile(it.virtualFile.url, it.text)
-        }
-    }
-
-    private fun analyzeWithOpenAI(codeFiles: List<InspectionService.CodeFile>, indicator: ProgressIndicator) {
-        val results = OpenAIClient.getInstance(project).analyzeFiles(codeFiles)
-        application.invokeLater {
-            handleAnalysisResults(results)
+    private fun processFile(
+        file: PsiFile,
+        relatedFiles: List<PsiFile>,
+        indicator: ProgressIndicator
+    ): OpenAIClient.AnalysisResult {
+        return application.runReadAction<OpenAIClient.AnalysisResult> {
+            val results = OpenAIClient.getInstance(project).analyzeFile(file)
+            application.invokeLater {
+                handleAnalysisResults(results)
+            }
+            return@runReadAction results
         }
     }
 
     private fun handleAnalysisResults(results: OpenAIClient.AnalysisResult) {
         println("Analyze results size: ${results.content?.length}")
-        onProgressUpdate("Processed results with ${results.actions.size} actions")
+
     }
 
     private fun updateProgress(indicator: ProgressIndicator, fileName: String, processed: Int, total: Int) {

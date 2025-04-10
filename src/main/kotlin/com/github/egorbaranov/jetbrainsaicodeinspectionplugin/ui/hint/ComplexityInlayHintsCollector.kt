@@ -1,42 +1,22 @@
 package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.hint
 
-import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.OpenAIClient
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context.PsiFileRelationService
-import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.psi.ElementUsagesUtil
 import com.intellij.codeInsight.hints.FactoryInlayHintsCollector
 import com.intellij.codeInsight.hints.InlayHintsSink
 import com.intellij.codeInsight.hints.presentation.MouseButton
 import com.intellij.codeInsight.hints.presentation.RoundWithBackgroundPresentation
-import com.intellij.diff.DiffContentFactory
-import com.intellij.diff.DiffManager
-import com.intellij.diff.requests.SimpleDiffRequest
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.editor.BlockInlayPriority
-import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.colors.EditorFontType
-import com.intellij.openapi.fileTypes.PlainTextFileType
-import com.intellij.openapi.ui.popup.JBPopupFactory
-import com.intellij.psi.ElementDescriptionUtil
-import com.intellij.psi.PsiDocumentManager
+import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.psi.PsiElement
-import com.intellij.psi.util.PsiUtilCore
 import com.intellij.psi.util.elementType
 import com.intellij.ui.JBColor
-import com.intellij.ui.awt.RelativePoint
-import com.intellij.ui.components.JBPanel
-import com.intellij.usageView.UsageViewShortNameLocation
-import java.awt.BorderLayout
 import java.awt.Cursor
-import java.awt.Dimension
-import java.awt.FlowLayout
-import java.awt.event.MouseEvent
 import java.awt.font.FontRenderContext
-import javax.swing.JButton
-import javax.swing.SwingUtilities
 
 @Suppress("UnstableApiUsage")
 class ComplexityInlayHintsCollector(editor: Editor) : FactoryInlayHintsCollector(editor) {
@@ -83,8 +63,7 @@ class ComplexityInlayHintsCollector(editor: Editor) : FactoryInlayHintsCollector
                 }.toInt()
             }
 
-            // Build presentation (thread-safe)
-            val text = factory.smallText(" Fix Complex Code")
+            val text = factory.smallText("Enhance Code")
             val icon = factory.smallScaledIcon(AllIcons.Actions.EnableNewUi)
             val content = factory.seq(icon, factory.inset(text, left = 4))
 
@@ -117,91 +96,15 @@ class ComplexityInlayHintsCollector(editor: Editor) : FactoryInlayHintsCollector
                 priority = BlockInlayPriority.DOC_RENDER,
                 presentation = factory.withCursorOnHover(
                     factory.onClick(marginWrapper, MouseButton.Left) { event, _ ->
-                        showPopup(event, element)
+                        val project = editor.project ?: return@onClick
+                        val toolWindowManager = ToolWindowManager.getInstance(project)
+                        val toolWindow = toolWindowManager.getToolWindow("AI Code Inspection") ?: return@onClick
+                        toolWindow.show()
                     },
                     Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
                 )
             )
         }
         return true
-    }
-
-    private fun showPopup(event: MouseEvent, element: PsiElement) {
-        val project = element.project
-        val popupPanel = JBPanel<JBPanel<*>>(BorderLayout()).apply {
-            preferredSize = Dimension(400, 600)
-
-            // Create editor with diff
-            val originalContent = element.containingFile.text
-            val contentFactory = DiffContentFactory.getInstance()
-            val language = PsiUtilCore.getLanguageAtOffset(element.containingFile, element.textOffset)
-            val fileType = language.associatedFileType ?: PlainTextFileType.INSTANCE
-            val contentLeft = contentFactory.create(originalContent, fileType)
-
-            println("analysing file: $element")
-            val virtualFile = element.containingFile.virtualFile
-            val analyzeResults = OpenAIClient.getInstance(project).analyzeFiles(
-                files = listOf(InspectionService.CodeFile(virtualFile.url, element.containingFile.text))
-            )
-
-            val modifiedContent = analyzeResults.content ?: originalContent
-            val contentRight = contentFactory.create(modifiedContent, fileType)
-
-            val diffRequest = SimpleDiffRequest("Code Changes", contentLeft, contentRight, "Original", "Modified")
-            val diffPanel = DiffManager.getInstance().createRequestPanel(project, project, null)
-            diffPanel.setRequest(diffRequest)
-
-            // Button panel
-            val buttonPanel = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.RIGHT)).apply {
-                val applyButton = JButton("Apply Fix").apply {
-                    putClientProperty("JButton.buttonType", "gradient")
-                    putClientProperty("ActionToolbar.ACTION_BUTTON_KEY", true)
-                    putClientProperty("ActionButton.smallVariant", true)
-
-                    addActionListener {
-                        handleFixAction(element)
-                        WriteCommandAction.runWriteCommandAction(project) {
-                            val document: Document = PsiDocumentManager.getInstance(project).getDocument(element.containingFile)!!
-                            document.setText(modifiedContent)
-                            PsiDocumentManager.getInstance(project).commitDocument(document)
-                        }
-                        SwingUtilities.getWindowAncestor(this)?.dispose()
-                    }
-                }
-
-                val ignoreButton = JButton("Ignore").apply {
-                    addActionListener {
-                        SwingUtilities.getWindowAncestor(this)?.dispose()
-                    }
-                }
-
-                add(applyButton)
-                add(ignoreButton)
-            }
-
-            add(diffPanel.component, BorderLayout.CENTER)
-            add(buttonPanel, BorderLayout.SOUTH)
-        }
-
-        JBPopupFactory.getInstance()
-            .createComponentPopupBuilder(popupPanel, popupPanel)
-            .setTitle(
-                "Fix ${
-                    ElementDescriptionUtil.getElementDescription(
-                        element,
-                        UsageViewShortNameLocation.INSTANCE
-                    )
-                }"
-            )
-            .setFocusable(true)
-            .setRequestFocus(true)
-            .setCancelOnClickOutside(true)
-            .createPopup()
-            .show(RelativePoint(event))
-    }
-
-    private fun handleFixAction(element: PsiElement) {
-        // Implement your fix logic here
-        println("Applying fix to: ${element.text}")
     }
 }

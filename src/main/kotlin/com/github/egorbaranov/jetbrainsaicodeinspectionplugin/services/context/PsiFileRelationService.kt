@@ -37,8 +37,6 @@ class PsiFileRelationService : PersistentStateComponent<Element> {
 
     @RequiresEdt
     fun getRelations(project: Project): Map<PsiFile, List<PsiFile>> {
-//        ThreadingAssertions.assertEventDispatchThread()
-
         return ReadAction.compute<Map<PsiFile, List<PsiFile>>, Throwable> {
             relations.entries.mapNotNull { (sourceUrl, targetUrls) ->
                 val sourceFile = getValidFile(project, sourceUrl) ?: return@mapNotNull null
@@ -49,7 +47,7 @@ class PsiFileRelationService : PersistentStateComponent<Element> {
         }
     }
 
-    private fun getValidFile(project: Project, url: String): PsiFile? {
+    fun getValidFile(project: Project, url: String): PsiFile? {
         return try {
             VirtualFileManager.getInstance().findFileByUrl(url)
                 ?.takeIf { it.isValid }
@@ -60,6 +58,8 @@ class PsiFileRelationService : PersistentStateComponent<Element> {
             null
         }
     }
+
+    fun getUrlRelations(): Map<String, Set<String>> = relations
 
     fun getRelatedFiles(source: PsiFile): List<PsiFile> {
         val sourceUrl = source.virtualFile.url

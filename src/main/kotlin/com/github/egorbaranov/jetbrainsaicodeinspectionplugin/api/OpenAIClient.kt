@@ -4,6 +4,7 @@ import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspectio
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.MetricService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.storage.OpenAIKeyStorage
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.http.RateLimitingInterceptor
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.psi.PsiCrawler
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.annotations.SerializedName
@@ -12,6 +13,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
+import com.intellij.psi.PsiFile
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -32,25 +34,35 @@ class OpenAIClient(private val project: Project) {
     private val gson = Gson()
     private val logger = Logger.getInstance(javaClass)
 
-    fun analyzeFiles(
-        files: List<InspectionService.CodeFile>
+    fun analyzeFile(
+        file: PsiFile
     ): AnalysisResult {
         val inspections = InspectionService.getInstance(project).getInspections()
-        val messages = createMessages(
-            files,
-            inspections
-        )
-
         val tools = createTools(inspections.size < MAX_INSPECTIONS)
+        val crawler = PsiCrawler(project)
+        val result = try {
+            var toolCall: AnalysisResult? = null
 
-        return try {
-            val response = executeOpenAIRequest(messages, tools)
-            processToolCalls(response, files)
+            for (step in 0 until 3) {
+                val relatedFiles = crawler.getFiles(file, step * 3)
+                val files = createCodeFiles(file, relatedFiles).toMutableList()
+                val messages = createMessages(
+                    files,
+                    inspections
+                )
+
+                val response = executeOpenAIRequest(messages, tools)
+                toolCall = processToolCalls(response, files)
+            }
+
+            toolCall ?: AnalysisResult()
         } catch (e: Exception) {
             logger.error("Analysis failed", e)
             MetricService.getInstance(project).error(e)
             AnalysisResult(error = "Analysis failed: ${e.message}")
         }
+
+        return result
     }
 
     fun performFix(
@@ -156,6 +168,12 @@ class OpenAIClient(private val project: Project) {
                 content = "Analyze these files and provide improvements using the available tools"
             )
         )
+    }
+
+    private fun createCodeFiles(file: PsiFile, relatedFiles: List<PsiFile>): List<InspectionService.CodeFile> {
+        return (listOf(file) + relatedFiles).map {
+            InspectionService.CodeFile(it.virtualFile.url, it.text)
+        }
     }
 
     private fun createTools(useAddInspectionTool: Boolean): List<JsonObject> = listOfNotNull(
@@ -330,7 +348,6 @@ class OpenAIClient(private val project: Project) {
         val error: String? = null
     )
 
-    // OpenAI API data classes
     private data class ChatRequest(
         val model: String,
         val messages: List<Message>,
