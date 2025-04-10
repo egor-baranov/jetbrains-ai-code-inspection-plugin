@@ -101,6 +101,7 @@ class CodeInspectionToolWindow(
         project.messageBus.connect(disposer).subscribe(
             InspectionService.INSPECTION_CHANGE_TOPIC,
             object : InspectionService.InspectionChangeListener {
+
                 override fun inspectionsChanged() {
                     updateContent()
                 }
@@ -119,8 +120,9 @@ class CodeInspectionToolWindow(
 
                         contentPanel.remove(componentToRemove)
                         try {
-                            val codeFiles = InspectionService.getInstance(project).inspectionFiles[inspection]
-                                ?: return@invokeAndWait
+                            val codeFiles = InspectionService.getInstance(project).inspectionFiles[inspection].takeIf {
+                                it.orEmpty().size >= 2
+                            } ?: return@invokeAndWait
                             contentPanel.add(
                                 createRelationsPanel(
                                     inspection = inspection,
@@ -155,7 +157,7 @@ class CodeInspectionToolWindow(
         }
     }
 
-    private fun analyzeRelationsWithProgress(project: Project) {
+    private fun analyzeRelationsWithProgress(project: Project, onComplete: Runnable) {
         RelationsAnalyzerTask.execute(
             project = project,
             onProgressUpdate = { status ->
@@ -163,6 +165,7 @@ class CodeInspectionToolWindow(
             },
             onComplete = {
                 println("Analysis completed successfully")
+                onComplete.run()
             },
             onError = { error ->
                 println("Handled error: $error")
@@ -190,7 +193,9 @@ class CodeInspectionToolWindow(
                 object : MouseAdapter() {
                     override fun mouseClicked(e: MouseEvent?) {
                         MetricService.getInstance(project).collect(Metric.MetricID.EXECUTE)
-                        analyzeRelationsWithProgress(project)
+                        analyzeRelationsWithProgress(project) {
+                            updateContent()
+                        }
                     }
                 }
             )

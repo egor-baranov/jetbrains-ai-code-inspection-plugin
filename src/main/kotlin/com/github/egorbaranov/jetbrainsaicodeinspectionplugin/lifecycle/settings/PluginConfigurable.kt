@@ -40,6 +40,18 @@ class PluginConfigurable : SearchableConfigurable {
         val settings = PluginSettingsState.getInstance()
         textField = JBTextField(settings.someSetting, 20)
 
+        val metrics = project?.let { MetricService.getInstance(it).getMetrics() }
+        val usabilityScore = metrics?.let {
+            it.count {
+                it.id == Metric.MetricID.APPLY_FIX
+            }.toFloat() /
+                    it.count {
+                        it.id == Metric.MetricID.APPLY_FIX ||
+                                it.id == Metric.MetricID.IGNORE_FIX ||
+                                it.id == Metric.MetricID.DELETE_INSPECTION
+                    }
+        } ?: 1
+
         mySettingsComponent = panel {
             this.group("Usage Statistics") {
                 row {
@@ -55,13 +67,18 @@ class PluginConfigurable : SearchableConfigurable {
                         JPanel(org.jdesktop.swingx.HorizontalLayout()).also {
                             it.add(buildStatPanel("Fixes applied", "42"))
                             it.add(Box.createHorizontalStrut(16))
-                            it.add(buildStatPanel("Files affected","168"))
+                            it.add(buildStatPanel("Files affected", "168"))
                             it.add(Box.createHorizontalStrut(16))
                             it.add(buildStatPanel("Lines affected", "496"))
                             it.add(Box.createHorizontalStrut(16))
                             it.add(buildStatPanel("Approve rate", "68%"))
                             it.add(Box.createHorizontalStrut(16))
-                            it.add(buildStatPanel("Usability score", "0.34"))
+                            it.add(
+                                buildStatPanel(
+                                    "Usability score",
+                                    usabilityScore.toString()
+                                )
+                            )
                         }
                     )
                 }
@@ -110,7 +127,14 @@ class PluginConfigurable : SearchableConfigurable {
                                         row: Int,
                                         column: Int
                                     ): Component {
-                                        val c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column)
+                                        val c = super.getTableCellRendererComponent(
+                                            table,
+                                            value,
+                                            isSelected,
+                                            hasFocus,
+                                            row,
+                                            column
+                                        )
 
                                         c.background = when {
                                             isSelected -> table.selectionBackground
@@ -219,6 +243,7 @@ class PluginConfigurable : SearchableConfigurable {
                 2 -> "Params"
                 else -> ""
             }
+
             override fun getValueAt(row: Int, column: Int) = when (column) {
                 0 -> groupedData[row].first.name
                 1 -> groupedData[row].second.size

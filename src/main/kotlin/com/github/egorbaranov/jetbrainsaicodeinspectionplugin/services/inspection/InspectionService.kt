@@ -37,7 +37,9 @@ class InspectionService(private val project: Project) : PersistentStateComponent
 
     fun getInspectionById(id: String): Inspection? = inspectionsById[id]
 
-    fun getInspections(): List<Inspection> = inspectionsById.values.toList()
+    fun getInspections(): List<Inspection> = synchronized(inspectionFiles) {
+        inspectionFiles.keys.toList()
+    }
 
     fun setInspectionDescription(id: String, description: String) {
         println("set inspection description: id=$id, description=$description")
@@ -57,13 +59,15 @@ class InspectionService(private val project: Project) : PersistentStateComponent
         onPerformed: ((List<CodeFile>) -> Unit)? = null
     ) {
         val existingFiles = inspectionFiles[inspection]?.map { it.path }?.toSet().orEmpty()
-        val filteredFiles = files.filter { !existingFiles.contains(it.path) }
+        val filteredFiles = files.filter { !existingFiles.contains(it.path) }.toSet().toList()
+        println("existing files: $existingFiles")
+        println("filtered files: ${filteredFiles.map { it.path }}")
 
         if (inspectionFiles[inspection] == null) {
             inspectionFiles[inspection] = mutableListOf()
         }
-
         inspectionLoading(inspection)
+
         performFixWithProgress(inspection, filteredFiles) {
             println("added files to inspection: ${filteredFiles.size}}")
             println("Filtered files size: ${filteredFiles.size}")
@@ -71,6 +75,7 @@ class InspectionService(private val project: Project) : PersistentStateComponent
             synchronized(inspectionFiles) {
                 val existing = inspectionFiles[inspection]?.map { it.path }?.toSet().orEmpty()
                 val filtered = it.filter { !existing.contains(it.path) }
+
                 inspectionFiles[inspection]?.addAll(filtered)
                 inspectionLoaded(inspection)
             }

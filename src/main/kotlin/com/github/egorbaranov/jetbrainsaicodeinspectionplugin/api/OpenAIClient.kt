@@ -1,6 +1,7 @@
 package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api
 
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService.Companion.MAX_INSPECTIONS
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.MetricService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.storage.OpenAIKeyStorage
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.http.RateLimitingInterceptor
@@ -37,22 +38,31 @@ class OpenAIClient(private val project: Project) {
     fun analyzeFile(
         file: PsiFile
     ): AnalysisResult {
-        val inspections = InspectionService.getInstance(project).getInspections()
-        val tools = createTools(inspections.size < MAX_INSPECTIONS)
+        println("Process file: $file")
         val crawler = PsiCrawler(project)
         val result = try {
             var toolCall: AnalysisResult? = null
 
-            for (step in 0 until 3) {
+            for (step in 1..3) {
                 val relatedFiles = crawler.getFiles(file, step * 3)
                 val files = createCodeFiles(file, relatedFiles).toMutableList()
+                println("PROCESSING FILES: ${files.map { it.path }}")
+                val inspections = InspectionService.getInstance(project).getInspections()
+                println("inspections size: ${inspections.size}")
                 val messages = createMessages(
                     files,
                     inspections
                 )
 
+                val tools = createTools(inspections.size < MAX_INSPECTIONS)
+                println("tools: ${tools.size}")
                 val response = executeOpenAIRequest(messages, tools)
+
                 toolCall = processToolCalls(response, files)
+                if (toolCall.actions.all { it is Action.RequestContext }) {
+                    println("No request context found: ${toolCall.actions}")
+                    break
+                }
             }
 
             toolCall ?: AnalysisResult()
@@ -171,7 +181,7 @@ class OpenAIClient(private val project: Project) {
     }
 
     private fun createCodeFiles(file: PsiFile, relatedFiles: List<PsiFile>): List<InspectionService.CodeFile> {
-        return (listOf(file) + relatedFiles).map {
+        return (listOf(file) + relatedFiles).toSet().map {
             InspectionService.CodeFile(it.virtualFile.url, it.text)
         }
     }
@@ -254,6 +264,7 @@ class OpenAIClient(private val project: Project) {
 
         return client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
+                logger.error("Request failed: ${response.code} ${response.message}")
                 throw IOException("Request failed: ${response.code} ${response.message}")
             }
 
@@ -271,6 +282,7 @@ class OpenAIClient(private val project: Project) {
         response: OpenAIResponse,
         files: List<InspectionService.CodeFile>
     ): AnalysisResult {
+        println("process tool calls: ${response.choices?.firstOrNull()?.message?.tool_calls}")
         val toolResults = response.choices?.firstOrNull()?.message?.tool_calls
             ?.mapNotNull { toolCall ->
                 try {
@@ -298,9 +310,12 @@ class OpenAIClient(private val project: Project) {
         arguments: String,
         files: List<InspectionService.CodeFile>
     ): Action? {
-        if (InspectionService.getInstance(project).inspectionsById.size >= InspectionService.MAX_INSPECTIONS) {
-            return null
-        }
+        println("inspections size: ${InspectionService.getInstance(project).inspectionsById.size}, files size: ${files.size}")
+//        if (InspectionService.getInstance(project).inspectionsById.size >= InspectionService.MAX_INSPECTIONS
+//            || files.size < 2
+//        ) {
+//            return null
+//        }
 
         val args = gson.fromJson(arguments, AddInspectionArgs::class.java)
         val inspection = InspectionService.Inspection(
@@ -403,9 +418,6 @@ class OpenAIClient(private val project: Project) {
     )
 
     companion object {
-
-        const val MAX_INSPECTIONS = 10
-
         fun getInstance(project: Project): OpenAIClient {
             return project.service()
         }

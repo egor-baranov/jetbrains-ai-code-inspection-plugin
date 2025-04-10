@@ -19,6 +19,7 @@ import java.util.concurrent.ConcurrentHashMap
 )
 @Service(Service.Level.PROJECT)
 class PsiFileRelationService : PersistentStateComponent<Element> {
+
     private val relations = ConcurrentHashMap<String, MutableSet<String>>()
 
     fun addRelation(source: PsiFile, related: PsiFile) {

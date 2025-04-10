@@ -4,20 +4,18 @@ import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context.P
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiFile
-import com.intellij.util.concurrency.annotations.RequiresEdt
 import java.util.concurrent.ConcurrentHashMap
 
 class PsiCrawler(private val project: Project) {
 
     private val cache = ConcurrentHashMap<Pair<String, Int>, List<PsiFile>>()
 
-    @RequiresEdt
     fun getFiles(rootFile: PsiFile, offset: Int = 3): List<PsiFile> {
-        return ReadAction.compute<List<PsiFile>, Throwable> {
-            val rootUrl = getFileUrl(rootFile) ?: return@compute emptyList()
+        return ReadAction.nonBlocking<List<PsiFile>> {
+            val rootUrl = getFileUrl(rootFile) ?: return@nonBlocking emptyList()
             val cacheKey = rootUrl to offset
 
-            cache[cacheKey]?.let { return@compute it }
+            cache[cacheKey]?.let { return@nonBlocking it }
 
             val result = mutableListOf<PsiFile>()
             val visited = mutableSetOf<String>()
@@ -35,23 +33,27 @@ class PsiCrawler(private val project: Project) {
                 }
 
                 if (result.size < offset) {
-                    getChildUrls(currentUrl)
-                        .filter { visited.add(it) }
-                        .forEach { queue.add(it) }
+                    val childUrls = getChildUrls(currentUrl)
+                    childUrls.filter { visited.add(it) }
+                        .forEach {
+                            println("queue add $it")
+                            queue.add(it)
+                        }
                 }
             }
 
-            result.take(offset).toList().also { cache[cacheKey] = it }
-        }
+            result.take(offset).toSet().toList().also { cache[cacheKey] = it }
+        }.executeSynchronously()
     }
 
     private fun getFileUrl(file: PsiFile): String? {
-        return file.virtualFile?.path
+        return file.virtualFile?.url
     }
 
     private fun getChildUrls(url: String): Set<String> {
         return PsiFileRelationService.getInstance(project)
             .getUrlRelations()
+            .filter { it.key.startsWith("file://") }
             .getOrDefault(url, emptySet())
     }
 
