@@ -4,6 +4,7 @@ import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.M
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.MetricService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.UIUtils
 import com.intellij.icons.AllIcons
+import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.options.SearchableConfigurable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
@@ -25,7 +26,9 @@ import javax.swing.table.TableModel
 class PluginConfigurable : SearchableConfigurable {
 
     private var mySettingsComponent: JPanel? = null
-    private var textField: JBTextField? = null
+
+    private lateinit var apiKeyField: JBTextField
+    private lateinit var apiUrlField: JBTextField
 
     override fun getId(): String = "my.plugin.settings"
 
@@ -38,9 +41,15 @@ class PluginConfigurable : SearchableConfigurable {
 
     override fun createComponent(): JComponent {
         val settings = PluginSettingsState.getInstance()
-        textField = JBTextField(settings.someSetting, 20)
+        apiKeyField = JBTextField(settings.apiKey, 40).also {
+            it.text = PluginSettingsState.getInstance().apiKey
+        }
+        apiUrlField = JBTextField(settings.apiUrl, 40).also {
+            it.text = PluginSettingsState.getInstance().apiUrl
+        }
 
         val metrics = project?.let { MetricService.getInstance(it).getMetrics() }
+        val fixesApplied = metrics.orEmpty().count { it.id == Metric.MetricID.APPLY_FIX }
         val usabilityScore = metrics?.let {
             it.count {
                 it.id == Metric.MetricID.APPLY_FIX
@@ -65,7 +74,7 @@ class PluginConfigurable : SearchableConfigurable {
                 row {
                     this.cell(
                         JPanel(org.jdesktop.swingx.HorizontalLayout()).also {
-                            it.add(buildStatPanel("Fixes applied", "42"))
+                            it.add(buildStatPanel("Fixes applied", fixesApplied.toString()))
                             it.add(Box.createHorizontalStrut(16))
                             it.add(buildStatPanel("Files affected", "168"))
                             it.add(Box.createHorizontalStrut(16))
@@ -170,7 +179,7 @@ class PluginConfigurable : SearchableConfigurable {
                 }
 
                 row("API key") {
-                    textField()
+                    cell(apiKeyField)
                 }
 
                 row {
@@ -182,7 +191,7 @@ class PluginConfigurable : SearchableConfigurable {
                 }
 
                 row("LLM API URL") {
-                    textField()
+                    cell(apiUrlField)
                 }
 
                 row {
@@ -202,6 +211,7 @@ class PluginConfigurable : SearchableConfigurable {
                                 add(JButton("Clear Metrics").apply {
                                     icon = AllIcons.Actions.GC
                                     addActionListener {
+                                        project?.let { p -> MetricService.getInstance(p).clearData() }
                                     }
                                     putClientProperty("JButton.buttonType", "gradient")
                                 })
@@ -215,6 +225,7 @@ class PluginConfigurable : SearchableConfigurable {
                                 add(JButton("Plugin Repository").apply {
                                     icon = AllIcons.General.OpenDiskHover
                                     addActionListener {
+                                        BrowserUtil.open("https://github.com/egor-baranov/jetbrains-ai-code-inspection-plugin")
                                     }
                                 })
                             }
@@ -255,17 +266,20 @@ class PluginConfigurable : SearchableConfigurable {
 
     override fun isModified(): Boolean {
         val settings = PluginSettingsState.getInstance()
-        return textField?.text != settings.someSetting
+        return apiKeyField.text != settings.apiKey ||
+                apiUrlField.text != settings.apiUrl
     }
 
     override fun apply() {
         val settings = PluginSettingsState.getInstance()
-        settings.someSetting = textField?.text ?: ""
+        settings.apiKey = apiKeyField.text
+        settings.apiUrl = apiUrlField.text.takeIf { it.isNotEmpty() } ?: PluginSettingsState.DEFAULT_API_URL
     }
 
     override fun reset() {
         val settings = PluginSettingsState.getInstance()
-        textField?.text = settings.someSetting
+        apiKeyField.text = settings.apiKey
+        apiUrlField.text = settings.apiUrl
     }
 
     private fun buildStatPanel(titleText: String, mainText: String): JPanel {

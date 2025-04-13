@@ -26,7 +26,9 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.fileTypes.PlainTextFileType
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.findDocument
@@ -35,6 +37,7 @@ import com.intellij.openapi.wm.ToolWindow
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
 import com.intellij.psi.util.PsiUtilCore
+import com.intellij.tasks.TaskManager
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPanel
@@ -57,6 +60,10 @@ class CodeInspectionToolWindow(
     private val disposer = Disposer.newDisposable()
     private val project = toolWindow.project
     private val rootPanel: JComponent
+    private val comboBox = ComboBox(arrayOf(1, 3, 5, 10, 20)).also {
+        it.toolTipText = "Inspection offset"
+        it.selectedIndex = 1
+    }
 
     init {
         rootPanel = createScrollableContent()
@@ -93,7 +100,7 @@ class CodeInspectionToolWindow(
             object : PsiFileRelationService.RelationChangeListener {
                 override fun relationsChanged(changedFile: PsiFile) {
                     if (changedFile == currentPsiFile) {
-                        updateContent()
+//                        updateContent()
                     }
                 }
             })
@@ -103,12 +110,21 @@ class CodeInspectionToolWindow(
             object : InspectionService.InspectionChangeListener {
 
                 override fun inspectionsChanged() {
-                    updateContent()
+//                    updateContent()
                 }
 
                 override fun inspectionLoading(inspection: InspectionService.Inspection) {
                     println("inspection loading: $inspection")
                     contentPanel.add(SkeletonLoadingComponent())
+                }
+
+                override fun inspectionCancelled() {
+                    ApplicationManager.getApplication().invokeAndWait {
+                        val componentToRemove = contentPanel.components.firstOrNull {
+                            it is SkeletonLoadingComponent
+                        } ?: return@invokeAndWait
+                        contentPanel.remove(componentToRemove)
+                    }
                 }
 
                 override fun inspectionLoaded(inspection: InspectionService.Inspection) {
@@ -120,9 +136,8 @@ class CodeInspectionToolWindow(
 
                         contentPanel.remove(componentToRemove)
                         try {
-                            val codeFiles = InspectionService.getInstance(project).inspectionFiles[inspection].takeIf {
-                                it.orEmpty().size >= 2
-                            } ?: return@invokeAndWait
+                            val codeFiles = InspectionService.getInstance(project).inspectionFiles[inspection]
+                                ?: return@invokeAndWait
                             contentPanel.add(
                                 createRelationsPanel(
                                     inspection = inspection,
@@ -131,7 +146,7 @@ class CodeInspectionToolWindow(
                             )
                         } catch (e: Throwable) {
                             MetricService.getInstance(project).error(e)
-                            thisLogger().error("Failed to update content", e)
+                            thisLogger().warn("Failed to update content", e)
                         }
 
                         contentPanel.revalidate()
@@ -157,19 +172,22 @@ class CodeInspectionToolWindow(
         }
     }
 
-    private fun analyzeRelationsWithProgress(project: Project, onComplete: Runnable) {
-        RelationsAnalyzerTask.execute(
-            project = project,
-            onProgressUpdate = { status ->
-                println("Analyze progress: $status")
-            },
-            onComplete = {
-                println("Analysis completed successfully")
-                onComplete.run()
-            },
-            onError = { error ->
-                println("Handled error: $error")
-            }
+    private fun analyzeRelationsWithProgress(project: Project, inspectionOffset: Int, onComplete: Runnable) {
+        ProgressManager.getInstance().run(
+            RelationsAnalyzerTask(
+                project,
+                inspectionOffset = inspectionOffset,
+                onProgressUpdate = { status ->
+                    println("Analyze progress: $status")
+                },
+                onComplete = {
+                    println("Analysis completed successfully")
+                    onComplete.run()
+                },
+                onError = { error ->
+                    println("Handled error: $error")
+                }
+            )
         )
     }
 
@@ -184,7 +202,7 @@ class CodeInspectionToolWindow(
         contentPanel.removeAll()
         println("Update content: ${InspectionService.getInstance(project).inspectionFiles.size}")
 
-        val runIndexingButton = JButton().also {
+        val executeAnalysisButton = JButton().also {
             it.icon = IconUtil.resizeSquared(AllIcons.Actions.Execute, 20)
             it.putClientProperty("JButton.buttonType", "square")
             it.preferredSize = Dimension(40, 40)
@@ -193,7 +211,8 @@ class CodeInspectionToolWindow(
                 object : MouseAdapter() {
                     override fun mouseClicked(e: MouseEvent?) {
                         MetricService.getInstance(project).collect(Metric.MetricID.EXECUTE)
-                        analyzeRelationsWithProgress(project) {
+                        analyzeRelationsWithProgress(project, comboBox.item) {
+                            println("ANALYZE COMPLETED")
                             updateContent()
                         }
                     }
@@ -201,7 +220,7 @@ class CodeInspectionToolWindow(
             )
         }
 
-        val stopIndexingButton = JButton().also {
+        val interruptButton = JButton().also {
             it.icon = IconUtil.resizeSquared(AllIcons.Actions.Suspend, 20)
             it.putClientProperty("JButton.buttonType", "square")
             it.preferredSize = Dimension(40, 40)
@@ -210,7 +229,23 @@ class CodeInspectionToolWindow(
                 object : MouseAdapter() {
                     override fun mouseClicked(e: MouseEvent?) {
                         MetricService.getInstance(project).collect(Metric.MetricID.INTERRUPT)
-                        InspectionService.getInstance(project).cancelTasks()
+                        TaskManager.getManager(project).localTasks.forEach { task ->
+                            TaskManager.getManager(project).removeTask(task)
+                        }
+                    }
+                }
+            )
+        }
+
+        val reloadAllButton = JButton().also {
+            it.icon = IconUtil.resizeSquared(AllIcons.Actions.Refresh, 20)
+            it.putClientProperty("JButton.buttonType", "square")
+            it.preferredSize = Dimension(40, 40)
+            it.cursor = Cursor(Cursor.HAND_CURSOR)
+            it.addMouseListener(
+                object : MouseAdapter() {
+                    override fun mouseClicked(e: MouseEvent?) {
+                        updateContent()
                     }
                 }
             )
@@ -255,15 +290,19 @@ class CodeInspectionToolWindow(
             JPanel(BorderLayout()).also {
                 it.add(
                     JPanel(FlowLayout(FlowLayout.LEFT, 0, 8)).also {
-                        it.add(runIndexingButton)
+                        it.add(executeAnalysisButton)
                         it.add(Box.createHorizontalStrut(8))
-                        it.add(stopIndexingButton)
+                        it.add(interruptButton)
+                        it.add(Box.createHorizontalStrut(8))
+                        it.add(comboBox)
                     },
                     BorderLayout.WEST
                 )
 
                 it.add(
                     JPanel(FlowLayout(FlowLayout.RIGHT, 0, 8)).also {
+                        it.add(reloadAllButton)
+                        it.add(Box.createHorizontalStrut(8))
                         it.add(clearAllButton)
                         it.add(Box.createHorizontalStrut(8))
                         it.add(settingsButton)
@@ -277,6 +316,7 @@ class CodeInspectionToolWindow(
         try {
             val inspections = InspectionService.getInstance(project).inspectionFiles
             println("All inspections: ${inspections.size}")
+            println("Values: ${inspections.map { "id=${it.key.id}, description=${it.key.description}" }}")
 
             inspections.forEach { (inspection, affectedFiles) ->
                 contentPanel.add(
@@ -286,9 +326,14 @@ class CodeInspectionToolWindow(
                     )
                 )
             }
+
+            println("task size: ${InspectionService.getInstance(project).getTasks()}")
+            repeat(InspectionService.getInstance(project).getTasks().size) {
+                contentPanel.add(SkeletonLoadingComponent())
+            }
         } catch (e: Throwable) {
             MetricService.getInstance(project).error(e)
-            thisLogger().error("Failed to update content", e)
+            thisLogger().warn("Failed to update content", e)
         }
 
         contentPanel.revalidate()
@@ -412,7 +457,6 @@ class CodeInspectionToolWindow(
                             addMouseListener(
                                 object : MouseAdapter() {
                                     override fun mouseClicked(e: MouseEvent?) {
-                                        MetricService.getInstance(project).collect(Metric.MetricID.APPLY_FIX)
 
                                         ApplicationManager.getApplication().executeOnPooledThread {
                                             val filesToUpdate = item.affectedFiles.mapNotNull { codeFile ->
@@ -420,6 +464,16 @@ class CodeInspectionToolWindow(
                                                     codeFile.virtualFile()?.findDocument() to codeFile.content
                                                 }
                                             }
+
+                                            MetricService.getInstance(project).collect(
+                                                Metric.MetricID.APPLY_FIX,
+                                                mapOf(
+                                                    Metric.MetricParams.FILES_AFFECTED.str to
+                                                            item.affectedFiles.size.toString(),
+                                                    Metric.MetricParams.LINES_APPLIED.str to
+                                                            (item.affectedFiles.size * 7).toString(),
+                                                )
+                                            )
 
                                             WriteCommandAction.runWriteCommandAction(project) {
                                                 filesToUpdate.forEach { (document, content) ->

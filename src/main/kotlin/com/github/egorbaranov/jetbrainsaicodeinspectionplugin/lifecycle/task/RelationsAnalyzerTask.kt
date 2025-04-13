@@ -2,6 +2,7 @@ package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.task
 
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.OpenAIClient
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context.PsiFileRelationService
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.MetricService
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.progress.ProcessCanceledException
@@ -17,12 +18,11 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class RelationsAnalyzerTask(
     private val project: Project,
+    private val inspectionOffset: Int = 3,
     private val onProgressUpdate: (String) -> Unit = {},
     private val onComplete: () -> Unit = {},
     private val onError: (Throwable) -> Unit = {}
 ) : Task.Backgroundable(project, "Analyzing file relations", true) {
-
-    private val executor = AppExecutorUtil.getAppExecutorService()
 
     override fun run(indicator: ProgressIndicator) {
         try {
@@ -34,8 +34,6 @@ class RelationsAnalyzerTask(
         } catch (e: Exception) {
             MetricService.getInstance(project).error(e)
             handleError(e)
-        } finally {
-            application.invokeLater(onComplete)
         }
     }
 
@@ -55,13 +53,30 @@ class RelationsAnalyzerTask(
         val delayMillis = 300L
         var currentDelay = 0L
 
-        relations.forEach { (file, relatedFiles) ->
+        val inspectedFiles = InspectionService.getInstance(project).getAffectedFiles().map {
+            it.path
+        }.toSet()
+
+        val entities = relations.entries.filterNot {
+            println("Skip file: ${inspectedFiles.contains(it.key.virtualFile.url)}")
+            inspectedFiles.contains(it.key.virtualFile.url)
+        }.associate { it.key to it.value }
+
+        println("Offset: $inspectionOffset, entities: $entities")
+        val processedFiles = mutableSetOf<PsiFile>()
+        for (file in entities.map { it.key }) {
             indicator.checkCanceled()
+
+            val relatedFiles = entities[file].orEmpty().filterNot { processedFiles.contains(it) }
+            if (processedFiles.contains(file) || relatedFiles.isEmpty()) {
+                continue
+            }
 
             scheduler.schedule({
                 try {
                     updateProgress(indicator, file.name, processed.get(), total)
-                    processFile(file, relatedFiles, indicator)
+                    processFile(file, inspectionOffset, relatedFiles, indicator)
+                    println("process file: $file")
                     processed.incrementAndGet()
                 } catch (e: Exception) {
                     MetricService.getInstance(project).error(e)
@@ -70,17 +85,22 @@ class RelationsAnalyzerTask(
             }, currentDelay, TimeUnit.MILLISECONDS)
 
             currentDelay += delayMillis
+            processedFiles.addAll(relatedFiles + file)
         }
+
+        println("ALL FILES PROCESSED")
+        onComplete()
     }
 
 
     private fun processFile(
         file: PsiFile,
+        inspectionOffset: Int,
         relatedFiles: List<PsiFile>,
         indicator: ProgressIndicator
     ): OpenAIClient.AnalysisResult {
         return application.runReadAction<OpenAIClient.AnalysisResult> {
-            val results = OpenAIClient.getInstance(project).analyzeFile(file)
+            val results = OpenAIClient.getInstance(project).analyzeFile(file, inspectionOffset = inspectionOffset)
             application.invokeLater {
                 handleAnalysisResults(results)
             }
@@ -116,17 +136,6 @@ class RelationsAnalyzerTask(
                 "Analysis failed: ${e.message}",
                 "Error"
             )
-        }
-    }
-
-    companion object {
-        fun execute(
-            project: Project,
-            onProgressUpdate: (String) -> Unit = {},
-            onComplete: () -> Unit = {},
-            onError: (Throwable) -> Unit = {}
-        ): Task = RelationsAnalyzerTask(project, onProgressUpdate, onComplete, onError).also {
-            it.queue()
         }
     }
 }

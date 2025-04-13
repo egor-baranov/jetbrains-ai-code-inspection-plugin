@@ -1,15 +1,13 @@
 package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api
 
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.settings.PluginSettingsState
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService
-import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService.Companion.MAX_INSPECTIONS
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.MetricService
-import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.storage.OpenAIKeyStorage
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.http.RateLimitingInterceptor
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.psi.PsiCrawler
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.annotations.SerializedName
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
@@ -36,7 +34,8 @@ class OpenAIClient(private val project: Project) {
     private val logger = Logger.getInstance(javaClass)
 
     fun analyzeFile(
-        file: PsiFile
+        file: PsiFile,
+        inspectionOffset: Int
     ): AnalysisResult {
         println("Process file: $file")
         val crawler = PsiCrawler(project)
@@ -47,6 +46,7 @@ class OpenAIClient(private val project: Project) {
                 val relatedFiles = crawler.getFiles(file, step * 3)
                 val files = createCodeFiles(file, relatedFiles).toMutableList()
                 println("PROCESSING FILES: ${files.map { it.path }}")
+
                 val inspections = InspectionService.getInstance(project).getInspections()
                 println("inspections size: ${inspections.size}")
                 val messages = createMessages(
@@ -54,11 +54,11 @@ class OpenAIClient(private val project: Project) {
                     inspections
                 )
 
-                val tools = createTools(inspections.size < MAX_INSPECTIONS)
+                val tools = createTools(inspections.size < inspectionOffset)
                 println("tools: ${tools.size}")
                 val response = executeOpenAIRequest(messages, tools)
 
-                toolCall = processToolCalls(response, files)
+                toolCall = processToolCalls(response, files, inspectionOffset)
                 if (toolCall.actions.all { it is Action.RequestContext }) {
                     println("No request context found: ${toolCall.actions}")
                     break
@@ -67,7 +67,7 @@ class OpenAIClient(private val project: Project) {
 
             toolCall ?: AnalysisResult()
         } catch (e: Exception) {
-            logger.error("Analysis failed", e)
+            logger.warn("Analysis failed", e)
             MetricService.getInstance(project).error(e)
             AnalysisResult(error = "Analysis failed: ${e.message}")
         }
@@ -105,6 +105,7 @@ class OpenAIClient(private val project: Project) {
                            - Existing whitespace
                            - Line breaks
                            - Comment positions
+                        5. IF YOU CAN'T APPLY INSTRUCTIONS TO A FILE JUST RETURN IT UNCHANGED
 
                         VIOLATIONS WILL CAUSE AUTOMATIC REJECTION
                     """.trimIndent()
@@ -121,7 +122,9 @@ class OpenAIClient(private val project: Project) {
                         val rawResponse = response.choices?.firstOrNull()?.message?.content ?: ""
 
                         fixedContent = rawResponse
-                        if (codeFile.content.trimIndent() != fixedContent.trimIndent() && fixedContent.isNotBlank()) {
+                        if (codeFile.content.trim().trimIndent() != fixedContent.trim()
+                                .trimIndent() && fixedContent.isNotBlank()
+                        ) {
                             validFixFound = true
                         } else {
                             attempts++
@@ -134,14 +137,14 @@ class OpenAIClient(private val project: Project) {
                     } catch (e: Exception) {
                         attempts++
                         MetricService.getInstance(project).error(e)
-                        logger.error("API request failed: ${e.message} (${maxAttempts - attempts} attempts remaining)")
+                        logger.warn("API request failed: ${e.message} (${maxAttempts - attempts} attempts remaining)")
                     }
                 }
 
-                if (validFixFound) codeFile.copy(content = fixedContent) else null
+                if (validFixFound) codeFile.copy(content = fixedContent.trim()) else null
             } catch (e: Exception) {
                 MetricService.getInstance(project).error(e)
-                logger.error("Critical failure fixing ${codeFile.path}", e)
+                logger.warn("Critical failure fixing ${codeFile.path}", e)
                 codeFile
             }
         }
@@ -189,7 +192,7 @@ class OpenAIClient(private val project: Project) {
     private fun createTools(useAddInspectionTool: Boolean): List<JsonObject> = listOfNotNull(
         createTool(
             name = "add_inspection",
-            description = "Create new code inspection finding for all analyzed files",
+            description = "Create new code inspection representing fix or improvement for all analyzed files",
             parameters = JsonObject().apply {
                 addProperty("type", "object")
                 add("properties", JsonObject().apply {
@@ -256,15 +259,15 @@ class OpenAIClient(private val project: Project) {
         logger.debug("Request body: $jsonBody")
 
         val request = Request.Builder()
-            .url("https://api.openai.com/v1/chat/completions")
-            .addHeader("Authorization", "Bearer ${getApiKey()}")
+            .url(PluginSettingsState.getInstance().apiUrl)
+            .addHeader("Authorization", "Bearer ${PluginSettingsState.getInstance().apiKey}")
             .addHeader("Content-Type", "application/json")
             .post(jsonBody.toRequestBody())
             .build()
 
         return client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
-                logger.error("Request failed: ${response.code} ${response.message}")
+                logger.warn("Request failed: ${response.code} ${response.message}")
                 throw IOException("Request failed: ${response.code} ${response.message}")
             }
 
@@ -280,21 +283,22 @@ class OpenAIClient(private val project: Project) {
 
     private fun processToolCalls(
         response: OpenAIResponse,
-        files: List<InspectionService.CodeFile>
+        files: List<InspectionService.CodeFile>,
+        inspectionOffset: Int
     ): AnalysisResult {
         println("process tool calls: ${response.choices?.firstOrNull()?.message?.tool_calls}")
         val toolResults = response.choices?.firstOrNull()?.message?.tool_calls
             ?.mapNotNull { toolCall ->
                 try {
                     when (toolCall.function.name) {
-                        "add_inspection" -> handleAddInspection(toolCall.function.arguments, files)
+                        "add_inspection" -> handleAddInspection(toolCall.function.arguments, files, inspectionOffset)
                         "apply_inspection" -> handleApplyInspection(toolCall.function.arguments, files)
                         "request_context" -> handleRequestContext(toolCall.function.arguments)
                         else -> null
                     }
                 } catch (e: Exception) {
                     MetricService.getInstance(project).error(e)
-                    logger.error("Failed to process tool call", e)
+                    logger.warn("Failed to process tool call", e)
                     Action.Error("Failed to process ${toolCall.function.name}: ${e.message}")
                 }
             } ?: emptyList()
@@ -308,14 +312,19 @@ class OpenAIClient(private val project: Project) {
 
     private fun handleAddInspection(
         arguments: String,
-        files: List<InspectionService.CodeFile>
+        files: List<InspectionService.CodeFile>,
+        inspectionOffset: Int
     ): Action? {
         println("inspections size: ${InspectionService.getInstance(project).inspectionsById.size}, files size: ${files.size}")
-//        if (InspectionService.getInstance(project).inspectionsById.size >= InspectionService.MAX_INSPECTIONS
-//            || files.size < 2
-//        ) {
-//            return null
-//        }
+        if (InspectionService.getInstance(project).inspectionFiles.size >= inspectionOffset) {
+            println(
+                "Max inspection limit (${inspectionOffset}) exceeded, " +
+                        "current is ${InspectionService.getInstance(project).inspectionFiles.size}"
+            )
+
+            InspectionService.getInstance(project).cancelInspection()
+            return null
+        }
 
         val args = gson.fromJson(arguments, AddInspectionArgs::class.java)
         val inspection = InspectionService.Inspection(
@@ -345,10 +354,6 @@ class OpenAIClient(private val project: Project) {
         println("requesting extra context: $arguments")
         return Action.RequestContext(contextType = args.context_type)
     }
-
-    private fun getApiKey(): String = ApplicationManager.getApplication()
-        .getService(OpenAIKeyStorage::class.java)
-        .apiKey
 
     sealed class Action {
         data class AddInspection(val inspection: InspectionService.Inspection) : Action()

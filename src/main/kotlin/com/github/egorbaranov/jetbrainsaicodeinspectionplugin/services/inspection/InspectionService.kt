@@ -41,6 +41,12 @@ class InspectionService(private val project: Project) : PersistentStateComponent
         inspectionFiles.keys.toList()
     }
 
+    fun getAffectedFiles(): List<CodeFile> = synchronized(inspectionFiles) {
+        inspectionFiles.values.toSet().flatten().toList()
+    }
+
+    fun getTasks(): List<Task> = tasks
+
     fun setInspectionDescription(id: String, description: String) {
         println("set inspection description: id=$id, description=$description")
 
@@ -55,17 +61,12 @@ class InspectionService(private val project: Project) : PersistentStateComponent
 
     fun addFilesToInspection(
         inspection: Inspection,
-        files: List<CodeFile>,
-        onPerformed: ((List<CodeFile>) -> Unit)? = null
+        files: List<CodeFile>
     ) {
         val existingFiles = inspectionFiles[inspection]?.map { it.path }?.toSet().orEmpty()
         val filteredFiles = files.filter { !existingFiles.contains(it.path) }.toSet().toList()
         println("existing files: $existingFiles")
         println("filtered files: ${filteredFiles.map { it.path }}")
-
-        if (inspectionFiles[inspection] == null) {
-            inspectionFiles[inspection] = mutableListOf()
-        }
         inspectionLoading(inspection)
 
         performFixWithProgress(inspection, filteredFiles) {
@@ -76,8 +77,12 @@ class InspectionService(private val project: Project) : PersistentStateComponent
                 val existing = inspectionFiles[inspection]?.map { it.path }?.toSet().orEmpty()
                 val filtered = it.filter { !existing.contains(it.path) }
 
-                inspectionFiles[inspection]?.addAll(filtered)
-                inspectionLoaded(inspection)
+                if (inspectionFiles[inspection] == null) {
+                    inspectionFiles[inspection] = filtered.toMutableList()
+                    inspectionLoaded(inspection)
+                } else {
+                    inspectionFiles[inspection]?.addAll(filtered)
+                }
             }
         }
     }
@@ -107,7 +112,7 @@ class InspectionService(private val project: Project) : PersistentStateComponent
                     thisLogger().warn("Processing canceled for inspection ${inspection.id}")
                 } catch (e: Exception) {
                     MetricService.getInstance(project).error(e)
-                    thisLogger().error("Failed to process files for inspection ${inspection.id}", e)
+                    thisLogger().warn("Failed to process files for inspection ${inspection.id}", e)
                     SwingUtilities.invokeLater {
                         Messages.showErrorDialog(
                             "Failed to apply fixes: ${e.message}",
@@ -120,6 +125,18 @@ class InspectionService(private val project: Project) : PersistentStateComponent
                     }
                 }
             }
+
+            override fun onFinished() {
+                super.onFinished()
+                tasks.remove(this)
+                notifyInspectionsChanged()
+            }
+
+            override fun onCancel() {
+                super.onCancel()
+                tasks.remove(this)
+                notifyInspectionsChanged()
+            }
         }
 
         tasks.add(task)
@@ -127,22 +144,16 @@ class InspectionService(private val project: Project) : PersistentStateComponent
         return task
     }
 
-    fun cancelTasks() {
-        tasks.forEach {
-            it.onCancel()
-        }
-        tasks.clear()
-    }
-
-    fun getFilesForInspection(inspection: Inspection): List<CodeFile> =
-        inspectionFiles[inspection] ?: emptyList()
-
-    fun inspectionLoading(inspection: Inspection) {
+    private fun inspectionLoading(inspection: Inspection) {
         project.messageBus.syncPublisher(INSPECTION_CHANGE_TOPIC).inspectionLoading(inspection)
     }
 
-    fun inspectionLoaded(inspection: Inspection) {
+    private fun inspectionLoaded(inspection: Inspection) {
         project.messageBus.syncPublisher(INSPECTION_CHANGE_TOPIC).inspectionLoaded(inspection)
+    }
+
+    fun cancelInspection() {
+        project.messageBus.syncPublisher(INSPECTION_CHANGE_TOPIC).inspectionCancelled()
     }
 
     fun removeInspection(inspection: Inspection) {
@@ -216,6 +227,7 @@ class InspectionService(private val project: Project) : PersistentStateComponent
 
     // Subscription handling
     private fun notifyInspectionsChanged() {
+        println("inspections changed")
         project.messageBus.syncPublisher(INSPECTION_CHANGE_TOPIC).inspectionsChanged()
     }
 
@@ -245,6 +257,8 @@ class InspectionService(private val project: Project) : PersistentStateComponent
 
         fun inspectionLoaded(inspection: Inspection)
 
+        fun inspectionCancelled()
+
         fun inspectionsChanged()
 
         fun removeInspection(inspection: Inspection)
@@ -258,8 +272,6 @@ class InspectionService(private val project: Project) : PersistentStateComponent
         }
 
         val logger = LoggerFactory.getLogger(InspectionService::class.java)
-        const val MAX_INSPECTIONS = 5
-
         val INSPECTION_CHANGE_TOPIC = Topic.create(
             "AI Code Inspections Changed",
             InspectionChangeListener::class.java

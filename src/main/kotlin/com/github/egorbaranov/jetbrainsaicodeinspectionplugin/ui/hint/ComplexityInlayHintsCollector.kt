@@ -1,7 +1,6 @@
 package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.hint
 
-import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context.PsiFileRelationService
-import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.psi.ElementUsagesUtil
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService
 import com.intellij.codeInsight.hints.FactoryInlayHintsCollector
 import com.intellij.codeInsight.hints.InlayHintsSink
 import com.intellij.codeInsight.hints.presentation.MouseButton
@@ -23,20 +22,16 @@ class ComplexityInlayHintsCollector(editor: Editor) : FactoryInlayHintsCollector
 
     override fun collect(element: PsiElement, editor: Editor, sink: InlayHintsSink): Boolean {
         val elementType = element.elementType.toString()
-        val usages = ElementUsagesUtil.getUsages(element)
 
-        if (usages.isNotEmpty()) {
-            println("Usages for element=$element: ${usages.map { it.containingFile.name }.toSet()}")
-
-            for (usage in usages) {
-                if (element.containingFile != usage.containingFile) {
-                    PsiFileRelationService.getInstance(element.project).addRelation(
-                        element.containingFile,
-                        usage.containingFile
-                    )
-                }
+        InspectionService.getInstance(editor.project!!)
+            .inspectionFiles
+            .values
+            .any { fileList ->
+                fileList.any { it.path == editor.virtualFile.url }
             }
-        }
+            .takeIf { it }
+            ?: return false
+
         if (elementType.contains("object") || elementType.contains("class")) {
             // Get document and editor settings
             val document = editor.document
@@ -50,8 +45,9 @@ class ComplexityInlayHintsCollector(editor: Editor) : FactoryInlayHintsCollector
                 val lineStart = document.getLineStartOffset(lineNum)
                 val leadingWhitespace = document.text.substring(lineStart, element.textOffset)
 
-                val spaceWidth =
-                    font.getStringBounds(" ", object : FontRenderContext() {}).width // Approximate space width
+                val spaceWidth = font.getStringBounds(
+                    " ",
+                    object : FontRenderContext() {}).width // Approximate space width
                 val tabWidth = spaceWidth * tabSize
 
                 return@runReadAction leadingWhitespace.sumOf { c ->

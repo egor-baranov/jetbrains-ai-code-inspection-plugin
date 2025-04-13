@@ -112,7 +112,7 @@ class ProjectIndexer(private val project: Project) {
         runReadAction {
             if (!dir.isValid) return@runReadAction
             indicator.checkCanceled()
-            indicator.text2 = "Indexing: ${dir.virtualFile.name}"
+            indicator.text2 = "Indexing: ${dir.virtualFile.url}"
 
             processElements(dir, handler, indicator, scope)
 
@@ -171,7 +171,7 @@ class ProjectIndexer(private val project: Project) {
                                 throw e
                             } catch (e: Exception) {
                                 MetricService.getInstance(project).error(e)
-                                logger.error("Error processing element", e)
+                                logger.warn("Error processing element", e)
                                 indexData.remove(key)
                             }
                         }
@@ -179,7 +179,7 @@ class ProjectIndexer(private val project: Project) {
                 } catch (e: ProcessCanceledException) {
                     throw e
                 } catch (e: Exception) {
-                    logger.error("Error during element processing", e)
+                    logger.warn("Error during element processing", e)
                 }
                 true
             }

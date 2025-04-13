@@ -73,16 +73,20 @@ class MetricService : PersistentStateComponent<Element> {
 
     fun error(e: Exception) = collect(
         id = Metric.MetricID.ERROR,
-        params = mapOf("exception" to e.message.orEmpty())
+        params = mapOf(Metric.MetricParams.EXCEPTION.str to e.message.orEmpty())
     )
 
     fun error(e: Throwable) = collect(
         id = Metric.MetricID.ERROR,
-        params = mapOf("exception" to e.message.orEmpty())
+        params = mapOf(Metric.MetricParams.EXCEPTION.str to e.message.orEmpty())
     )
 
     fun getMetrics(filter: Metric.MetricID? = null): List<Metric> {
         return metrics.filter { filter == null || it.id == filter }
+    }
+
+    fun clearData() {
+        metrics.clear()
     }
 
     companion object {

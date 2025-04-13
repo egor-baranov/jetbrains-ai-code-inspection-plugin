@@ -60,7 +60,7 @@ class CodeInspectionProjectActivity : ProjectActivity {
                     }
                 } catch (e: Exception) {
                     MetricService.getInstance(project).error(e)
-                    logger.error("Error processing usages", e)
+                    logger.warn("Error processing usages", e)
                 }
             }
 

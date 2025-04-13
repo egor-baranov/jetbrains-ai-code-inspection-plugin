@@ -32,11 +32,4 @@
                                         implementationClass="com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.marker.ComplexityLineMarkerProvider"/>
         <editorFactoryDocumentListener implementation="com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.document.DocumentChangeListener"/>
     </extensions>
-    <application-components>
-        <component>
-            <implementation-class>
-                com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.configuration.PluginConfiguration
-            </implementation-class>
-        </component>
-    </application-components>
 </idea-plugin>

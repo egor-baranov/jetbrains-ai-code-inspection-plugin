@@ -26,6 +26,12 @@ data class Metric(
         EXPAND
     }
 
+    enum class MetricParams(val str: String) {
+        EXCEPTION("exception"),
+        FILES_AFFECTED("files_affected"),
+        LINES_APPLIED("lines_applied")
+    }
+
     companion object {
         fun new(id: MetricID, params: Map<String, String>) = Metric(
             id = id,
