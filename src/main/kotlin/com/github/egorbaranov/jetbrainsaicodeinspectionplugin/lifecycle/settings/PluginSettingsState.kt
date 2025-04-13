@@ -20,7 +20,7 @@ class PluginSettingsState : PersistentStateComponent<PluginSettingsState> {
         state.copyStateTo(this)
     }
 
-    private fun copyStateTo(target: PluginSettingsState) {
+    fun copyStateTo(target: PluginSettingsState) {
         target.apiKey = this.apiKey
         target.apiUrl = this.apiUrl
     }

@@ -1,5 +1,6 @@
 package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.hint
 
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService
 import com.intellij.codeInsight.hints.*
 import com.intellij.openapi.editor.Editor
 import com.intellij.psi.PsiFile
@@ -22,7 +23,10 @@ class ComplexityInlayHintsProvider : InlayHintsProvider<NoSettings> {
         editor: Editor,
         settings: NoSettings,
         sink: InlayHintsSink
-    ): InlayHintsCollector = ComplexityInlayHintsCollector(editor)
+    ): InlayHintsCollector? = editor.project
+        ?.let {
+            ComplexityInlayHintsCollector(editor, InspectionService.getInstance(it))
+        }
 
     override fun createConfigurable(settings: NoSettings): ImmediateConfigurable =
         object : ImmediateConfigurable {

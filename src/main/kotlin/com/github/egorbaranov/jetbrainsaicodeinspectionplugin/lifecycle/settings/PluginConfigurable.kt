@@ -5,11 +5,16 @@ import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.M
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.UIUtils
 import com.intellij.icons.AllIcons
 import com.intellij.ide.BrowserUtil
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.fileChooser.FileChooserFactory
+import com.intellij.openapi.fileChooser.FileSaverDescriptor
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.options.SearchableConfigurable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.NlsContexts
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.dsl.builder.panel
@@ -18,10 +23,16 @@ import com.intellij.util.ui.JBUI
 import java.awt.*
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import java.io.File
+import java.io.IOException
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.time.Instant
 import javax.swing.*
 import javax.swing.table.AbstractTableModel
 import javax.swing.table.DefaultTableCellRenderer
 import javax.swing.table.TableModel
+import kotlin.math.sqrt
 
 class PluginConfigurable : SearchableConfigurable {
 
@@ -50,16 +61,31 @@ class PluginConfigurable : SearchableConfigurable {
 
         val metrics = project?.let { MetricService.getInstance(it).getMetrics() }
         val fixesApplied = metrics.orEmpty().count { it.id == Metric.MetricID.APPLY_FIX }
-        val usabilityScore = metrics?.let {
+        val filesAffected = metrics.orEmpty().sumOf {
+            it.params[Metric.MetricParams.FILES_AFFECTED.str]?.toInt() ?: 0
+        }
+        val linesAffected = metrics.orEmpty().sumOf {
+            it.params[Metric.MetricParams.LINES_APPLIED.str]?.toInt() ?: 0
+        }
+
+        val approveRate = metrics?.let {
             it.count {
                 it.id == Metric.MetricID.APPLY_FIX
-            }.toFloat() /
+            }.toFloat() * 100 /
                     it.count {
                         it.id == Metric.MetricID.APPLY_FIX ||
                                 it.id == Metric.MetricID.IGNORE_FIX ||
                                 it.id == Metric.MetricID.DELETE_INSPECTION
                     }
-        } ?: 1
+        }?.toInt() ?: 100
+
+        val usabilityScore = metrics?.takeIf { it.isNotEmpty() }?.let {
+            approveRate.toFloat() / 100 * (
+                    metrics.size - metrics.count {
+                        it.id == Metric.MetricID.ERROR
+                    } * 3) /
+                    metrics.size
+        }?.let { sqrt(it) } ?: 1f
 
         mySettingsComponent = panel {
             this.group("Usage Statistics") {
@@ -76,16 +102,16 @@ class PluginConfigurable : SearchableConfigurable {
                         JPanel(org.jdesktop.swingx.HorizontalLayout()).also {
                             it.add(buildStatPanel("Fixes applied", fixesApplied.toString()))
                             it.add(Box.createHorizontalStrut(16))
-                            it.add(buildStatPanel("Files affected", "168"))
+                            it.add(buildStatPanel("Files affected", filesAffected.toString()))
                             it.add(Box.createHorizontalStrut(16))
-                            it.add(buildStatPanel("Lines affected", "496"))
+                            it.add(buildStatPanel("Lines affected", linesAffected.toString()))
                             it.add(Box.createHorizontalStrut(16))
-                            it.add(buildStatPanel("Approve rate", "68%"))
+                            it.add(buildStatPanel("Approve rate", "$approveRate%"))
                             it.add(Box.createHorizontalStrut(16))
                             it.add(
                                 buildStatPanel(
                                     "Usability score",
-                                    usabilityScore.toString()
+                                    "%.2f".format(usabilityScore)
                                 )
                             )
                         }
@@ -219,6 +245,14 @@ class PluginConfigurable : SearchableConfigurable {
                                 add(JButton("Export Data").apply {
                                     icon = AllIcons.Actions.Download
                                     addActionListener {
+                                        project?.let { p ->
+                                            exportStringWithFileChooser(
+                                                p,
+                                                MetricService.getInstance(p).getMetrics().joinToString("\n") {
+                                                    "${it.id} : ${it.params}"
+                                                }
+                                            )
+                                        }
                                     }
                                 })
 
@@ -260,6 +294,36 @@ class PluginConfigurable : SearchableConfigurable {
                 1 -> groupedData[row].second.size
                 2 -> groupedData[row].second.map { it.params }.filter { it.isNotEmpty() }.joinToString { it.toString() }
                 else -> null
+            }
+        }
+    }
+
+    private fun exportStringWithFileChooser(project: Project, initialContent: String) {
+        println("export string: $initialContent")
+
+        ApplicationManager.getApplication().invokeLater {
+            val descriptor = FileSaverDescriptor(
+                "Export Text Content",
+                "Choose location to save text file",
+                "txt"
+            )
+
+            val fileWrapper = FileChooserFactory.getInstance()
+                .createSaveFileDialog(descriptor, project)
+                .save("metrics.txt")
+
+            if (fileWrapper != null) {
+                try {
+                    fileWrapper.virtualFile?.setBinaryContent(
+                        initialContent.toByteArray(Charsets.UTF_8)
+                    )
+                } catch (e: IOException) {
+                    Messages.showErrorDialog(
+                        project,
+                        "Failed to save file: ${e.message}",
+                        "Export Failed"
+                    )
+                }
             }
         }
     }

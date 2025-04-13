@@ -30,6 +30,5 @@
                 implementation="com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.hint.ComplexityInlayHintsProviderFactory"/>
         <codeInsight.lineMarkerProvider language="Kotlin"
                                         implementationClass="com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.marker.ComplexityLineMarkerProvider"/>
-        <editorFactoryDocumentListener implementation="com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.document.DocumentChangeListener"/>
     </extensions>
 </idea-plugin>

@@ -1,6 +1,7 @@
 package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.task
 
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.OpenAIClient
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.entity.AnalysisResult
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context.PsiFileRelationService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.MetricService
@@ -98,8 +99,8 @@ class RelationsAnalyzerTask(
         inspectionOffset: Int,
         relatedFiles: List<PsiFile>,
         indicator: ProgressIndicator
-    ): OpenAIClient.AnalysisResult {
-        return application.runReadAction<OpenAIClient.AnalysisResult> {
+    ): AnalysisResult {
+        return application.runReadAction<AnalysisResult> {
             val results = OpenAIClient.getInstance(project).analyzeFile(file, inspectionOffset = inspectionOffset)
             application.invokeLater {
                 handleAnalysisResults(results)
@@ -108,7 +109,7 @@ class RelationsAnalyzerTask(
         }
     }
 
-    private fun handleAnalysisResults(results: OpenAIClient.AnalysisResult) {
+    private fun handleAnalysisResults(results: AnalysisResult) {
         println("Analyze results size: ${results.content?.length}")
 
     }

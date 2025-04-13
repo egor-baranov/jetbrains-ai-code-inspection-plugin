@@ -8,6 +8,7 @@ import com.intellij.psi.search.searches.ReferencesSearch
 
 object ElementUsagesUtil {
 
+    // TODO: why isnt it used?
     fun getUsages(element: PsiElement): List<PsiElement> {
         return ReadAction.compute<List<PsiElement>, Throwable> {
             return@compute ReferencesSearch.search(

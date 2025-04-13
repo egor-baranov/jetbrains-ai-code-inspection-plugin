@@ -6,7 +6,10 @@ import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiFile
 import java.util.concurrent.ConcurrentHashMap
 
-class PsiCrawler(private val project: Project) {
+class PsiCrawler(
+    private val project: Project,
+    private val psiFileRelationService: PsiFileRelationService = PsiFileRelationService.getInstance(project)
+) {
 
     private val cache = ConcurrentHashMap<Pair<String, Int>, List<PsiFile>>()
 
@@ -51,14 +54,12 @@ class PsiCrawler(private val project: Project) {
     }
 
     private fun getChildUrls(url: String): Set<String> {
-        return PsiFileRelationService.getInstance(project)
+        return psiFileRelationService
             .getUrlRelations()
-            .filter { it.key.startsWith("file://") }
             .getOrDefault(url, emptySet())
     }
 
     private fun getValidFile(url: String): PsiFile? {
-        return PsiFileRelationService.getInstance(project)
-            .getValidFile(project, url)
+        return psiFileRelationService.getValidFile(project, url)
     }
 }

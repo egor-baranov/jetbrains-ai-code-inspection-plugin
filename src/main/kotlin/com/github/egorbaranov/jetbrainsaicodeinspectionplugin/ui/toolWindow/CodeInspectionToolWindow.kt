@@ -1,7 +1,6 @@
 package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.toolWindow
 
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.task.RelationsAnalyzerTask
-import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context.PsiFileRelationService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.Metric
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.MetricService
@@ -30,6 +29,7 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.findDocument
 import com.intellij.openapi.vfs.findPsiFile
@@ -44,11 +44,14 @@ import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.panels.VerticalLayout
 import com.intellij.util.IconUtil
+import com.intellij.util.diff.Diff
 import com.intellij.util.ui.JBUI
 import java.awt.*
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.*
+import kotlin.math.max
+import kotlin.math.min
 
 class CodeInspectionToolWindow(
     private val toolWindow: ToolWindow
@@ -69,6 +72,7 @@ class CodeInspectionToolWindow(
         rootPanel = createScrollableContent()
         toolWindow.component.add(rootPanel)
         setupListeners()
+        rootPanel.add(buildToolbar(), BorderLayout.NORTH)
         updateContent()
     }
 
@@ -96,22 +100,8 @@ class CodeInspectionToolWindow(
             })
 
         project.messageBus.connect(disposer).subscribe(
-            PsiFileRelationService.RELATION_CHANGE_TOPIC,
-            object : PsiFileRelationService.RelationChangeListener {
-                override fun relationsChanged(changedFile: PsiFile) {
-                    if (changedFile == currentPsiFile) {
-//                        updateContent()
-                    }
-                }
-            })
-
-        project.messageBus.connect(disposer).subscribe(
             InspectionService.INSPECTION_CHANGE_TOPIC,
             object : InspectionService.InspectionChangeListener {
-
-                override fun inspectionsChanged() {
-//                    updateContent()
-                }
 
                 override fun inspectionLoading(inspection: InspectionService.Inspection) {
                     println("inspection loading: $inspection")
@@ -139,9 +129,11 @@ class CodeInspectionToolWindow(
                             val codeFiles = InspectionService.getInstance(project).inspectionFiles[inspection]
                                 ?: return@invokeAndWait
                             contentPanel.add(
-                                createRelationsPanel(
-                                    inspection = inspection,
-                                    affectedFiles = codeFiles
+                                createCollapsiblePanel(
+                                    InspectionItem(
+                                        inspection = inspection,
+                                        affectedFiles = codeFiles
+                                    )
                                 )
                             )
                         } catch (e: Throwable) {
@@ -191,17 +183,7 @@ class CodeInspectionToolWindow(
         )
     }
 
-    private fun updateContent() {
-        if (!ApplicationManager.getApplication().isDispatchThread) {
-            ApplicationManager.getApplication().invokeLater({ updateContent() }, ModalityState.defaultModalityState())
-            return
-        }
-
-        if (project.isDisposed || !toolWindow.component.isShowing) return
-
-        contentPanel.removeAll()
-        println("Update content: ${InspectionService.getInstance(project).inspectionFiles.size}")
-
+    private fun buildToolbar(): JPanel {
         val executeAnalysisButton = JButton().also {
             it.icon = IconUtil.resizeSquared(AllIcons.Actions.Execute, 20)
             it.putClientProperty("JButton.buttonType", "square")
@@ -278,40 +260,49 @@ class CodeInspectionToolWindow(
                         MetricService.getInstance(project).collect(Metric.MetricID.SETTINGS)
                         ShowSettingsUtilImpl.showSettingsDialog(
                             project,
-                            "ai.code.inspection.settings", // Match the ID from plugin.xml
-                            "" // Additional search query (optional)
+                            "ai.code.inspection.settings",
+                            ""
                         )
                     }
                 }
             )
         }
 
-        contentPanel.add(
-            JPanel(BorderLayout()).also {
-                it.add(
-                    JPanel(FlowLayout(FlowLayout.LEFT, 0, 8)).also {
-                        it.add(executeAnalysisButton)
-                        it.add(Box.createHorizontalStrut(8))
-                        it.add(interruptButton)
-                        it.add(Box.createHorizontalStrut(8))
-                        it.add(comboBox)
-                    },
-                    BorderLayout.WEST
-                )
+        return JPanel(BorderLayout()).also { panel ->
+            panel.add(
+                JPanel(FlowLayout(FlowLayout.LEFT, 0, 8)).also {
+                    it.add(executeAnalysisButton)
+                    it.add(Box.createHorizontalStrut(8))
+                    it.add(interruptButton)
+                    it.add(Box.createHorizontalStrut(8))
+                    it.add(comboBox)
+                },
+                BorderLayout.WEST
+            )
 
-                it.add(
-                    JPanel(FlowLayout(FlowLayout.RIGHT, 0, 8)).also {
-                        it.add(reloadAllButton)
-                        it.add(Box.createHorizontalStrut(8))
-                        it.add(clearAllButton)
-                        it.add(Box.createHorizontalStrut(8))
-                        it.add(settingsButton)
-                    },
-                    BorderLayout.EAST
-                )
-            }
-        )
+            panel.add(
+                JPanel(FlowLayout(FlowLayout.RIGHT, 0, 8)).also {
+                    it.add(reloadAllButton)
+                    it.add(Box.createHorizontalStrut(8))
+                    it.add(clearAllButton)
+                    it.add(Box.createHorizontalStrut(8))
+                    it.add(settingsButton)
+                },
+                BorderLayout.EAST
+            )
+        }
+    }
 
+    private fun updateContent() {
+        if (!ApplicationManager.getApplication().isDispatchThread) {
+            ApplicationManager.getApplication().invokeLater({ updateContent() }, ModalityState.defaultModalityState())
+            return
+        }
+
+        if (project.isDisposed || !toolWindow.component.isShowing) return
+
+        contentPanel.removeAll()
+        println("Update content: ${InspectionService.getInstance(project).inspectionFiles.size}")
 
         try {
             val inspections = InspectionService.getInstance(project).inspectionFiles
@@ -320,15 +311,25 @@ class CodeInspectionToolWindow(
 
             inspections.forEach { (inspection, affectedFiles) ->
                 contentPanel.add(
-                    createRelationsPanel(
-                        inspection = inspection,
-                        affectedFiles = affectedFiles
+                    createCollapsiblePanel(
+                        InspectionItem(
+                            inspection = inspection,
+                            affectedFiles = affectedFiles
+                        )
                     )
                 )
             }
 
             println("task size: ${InspectionService.getInstance(project).getTasks()}")
-            repeat(InspectionService.getInstance(project).getTasks().size) {
+            repeat(
+                max(
+                    min(
+                        comboBox.item - inspections.size,
+                        InspectionService.getInstance(project).getTasks().size
+                    ),
+                    0
+                )
+            ) {
                 contentPanel.add(SkeletonLoadingComponent())
             }
         } catch (e: Throwable) {
@@ -338,30 +339,6 @@ class CodeInspectionToolWindow(
 
         contentPanel.revalidate()
         contentPanel.repaint()
-    }
-
-    private fun createRelationsPanel(
-        inspection: InspectionService.Inspection,
-        affectedFiles: List<InspectionService.CodeFile>
-    ): JComponent {
-        return createCollapsiblePanel(
-            InspectionItem(
-                inspection = inspection,
-                affectedFiles = affectedFiles
-            )
-        ).apply {
-            (getComponent(1) as JComponent).components.forEachIndexed { index, component ->
-                if (component is JPanel) {
-                    component.addMouseListener(object : MouseAdapter() {
-                        override fun mouseClicked(e: MouseEvent?) {
-                            affectedFiles.getOrNull(index)?.let {
-//                                navigateToFile(it)
-                            }
-                        }
-                    })
-                }
-            }
-        }
     }
 
     private fun createCollapsiblePanel(item: InspectionItem): JBPanel<*> {
@@ -457,10 +434,19 @@ class CodeInspectionToolWindow(
                             addMouseListener(
                                 object : MouseAdapter() {
                                     override fun mouseClicked(e: MouseEvent?) {
-
                                         ApplicationManager.getApplication().executeOnPooledThread {
+                                            var linesAffected = 0
                                             val filesToUpdate = item.affectedFiles.mapNotNull { codeFile ->
                                                 ReadAction.compute<Pair<Document?, String>?, Throwable> {
+                                                    val document = codeFile.virtualFile()?.findDocument()
+
+                                                    if (document != null) {
+                                                        linesAffected += calculateDiffStats(
+                                                            document.text,
+                                                            codeFile.content
+                                                        )
+                                                    }
+
                                                     codeFile.virtualFile()?.findDocument() to codeFile.content
                                                 }
                                             }
@@ -471,7 +457,7 @@ class CodeInspectionToolWindow(
                                                     Metric.MetricParams.FILES_AFFECTED.str to
                                                             item.affectedFiles.size.toString(),
                                                     Metric.MetricParams.LINES_APPLIED.str to
-                                                            (item.affectedFiles.size * 7).toString(),
+                                                            linesAffected.toString(),
                                                 )
                                             )
 
@@ -480,6 +466,7 @@ class CodeInspectionToolWindow(
                                                     document?.setText(content)
                                                 }
                                                 InspectionService.getInstance(project).removeInspection(item.inspection)
+                                                contentPanel.remove(collapsiblePanel)
                                             }
                                         }
                                     }
@@ -507,7 +494,6 @@ class CodeInspectionToolWindow(
                     object : MouseAdapter() {
                         override fun mouseClicked(e: MouseEvent?) {
                             content.isVisible = !content.isVisible
-                            // Access the correct component index
                             toggleLabel.icon = getToggleIcon(content.isVisible)
                             revalidate()
                             repaint()
@@ -526,6 +512,26 @@ class CodeInspectionToolWindow(
                 super.paintComponent(g)
             }
         }
+    }
+
+
+    fun calculateDiffStats(text1: String, text2: String): Int {
+        val lines1 = StringUtil.splitByLines(text1)
+        val lines2 = StringUtil.splitByLines(text2)
+
+        val rootChange = Diff.buildChanges(lines1, lines2)
+
+        var deletions = 0
+        var insertions = 0
+
+        var currentChange: Diff.Change? = rootChange
+        while (currentChange != null) {
+            deletions += currentChange.deleted
+            insertions += currentChange.inserted
+            currentChange = currentChange.link
+        }
+
+        return insertions + deletions
     }
 
 
@@ -571,6 +577,7 @@ class CodeInspectionToolWindow(
                     "Original",
                     "Modified"
                 )
+
                 var diffPanel: DiffRequestPanel? = null
 
                 ApplicationManager.getApplication().invokeAndWait {
@@ -679,7 +686,7 @@ class CodeInspectionToolWindow(
                         add(diffPanelComponent)
                     }
                 }
-                // Layout components
+
                 add(centerPanel, BorderLayout.CENTER)
             }
 

@@ -129,13 +129,11 @@ class InspectionService(private val project: Project) : PersistentStateComponent
             override fun onFinished() {
                 super.onFinished()
                 tasks.remove(this)
-                notifyInspectionsChanged()
             }
 
             override fun onCancel() {
                 super.onCancel()
                 tasks.remove(this)
-                notifyInspectionsChanged()
             }
         }
 
@@ -149,6 +147,7 @@ class InspectionService(private val project: Project) : PersistentStateComponent
     }
 
     private fun inspectionLoaded(inspection: Inspection) {
+        println("Inspection loaded: $inspection")
         project.messageBus.syncPublisher(INSPECTION_CHANGE_TOPIC).inspectionLoaded(inspection)
     }
 
@@ -225,12 +224,6 @@ class InspectionService(private val project: Project) : PersistentStateComponent
         }
     }
 
-    // Subscription handling
-    private fun notifyInspectionsChanged() {
-        println("inspections changed")
-        project.messageBus.syncPublisher(INSPECTION_CHANGE_TOPIC).inspectionsChanged()
-    }
-
     // Data classes
     data class Inspection(
         val id: String,
@@ -253,13 +246,12 @@ class InspectionService(private val project: Project) : PersistentStateComponent
     }
 
     interface InspectionChangeListener {
+
         fun inspectionLoading(inspection: Inspection)
 
         fun inspectionLoaded(inspection: Inspection)
 
         fun inspectionCancelled()
-
-        fun inspectionsChanged()
 
         fun removeInspection(inspection: Inspection)
 

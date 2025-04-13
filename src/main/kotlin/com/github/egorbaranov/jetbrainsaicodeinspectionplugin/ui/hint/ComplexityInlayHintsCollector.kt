@@ -18,12 +18,15 @@ import java.awt.Cursor
 import java.awt.font.FontRenderContext
 
 @Suppress("UnstableApiUsage")
-class ComplexityInlayHintsCollector(editor: Editor) : FactoryInlayHintsCollector(editor) {
+class ComplexityInlayHintsCollector(
+    editor: Editor,
+    private val inspectionService: InspectionService
+) : FactoryInlayHintsCollector(editor) {
 
     override fun collect(element: PsiElement, editor: Editor, sink: InlayHintsSink): Boolean {
         val elementType = element.elementType.toString()
 
-        InspectionService.getInstance(editor.project!!)
+        inspectionService
             .inspectionFiles
             .values
             .any { fileList ->
@@ -33,13 +36,11 @@ class ComplexityInlayHintsCollector(editor: Editor) : FactoryInlayHintsCollector
             ?: return false
 
         if (elementType.contains("object") || elementType.contains("class")) {
-            // Get document and editor settings
             val document = editor.document
             val colorsScheme = editor.colorsScheme
             val font = colorsScheme.getFont(EditorFontType.PLAIN)
             val tabSize = editor.settings.getTabSize(editor.project)
 
-            // Calculate indentation width (thread-safe)
             val marginLeft = ApplicationManager.getApplication().runReadAction<Int> {
                 val lineNum = document.getLineNumber(element.textOffset)
                 val lineStart = document.getLineStartOffset(lineNum)
