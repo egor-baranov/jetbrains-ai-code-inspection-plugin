@@ -31,7 +31,7 @@ repositories {
 // Dependencies are managed with Gradle version catalog - read more: https://docs.gradle.org/current/userguide/platforms.html#sub:version-catalog
 dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.google.code.gson:gson:2.10.1")
+    implementation("com.google.code.gson:gson:2.13.0")
     testImplementation(libs.junit)
     testImplementation(libs.opentest4j)
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.8.2")
