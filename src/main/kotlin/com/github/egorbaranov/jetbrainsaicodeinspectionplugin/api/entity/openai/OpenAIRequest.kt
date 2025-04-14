@@ -7,5 +7,5 @@ data class OpenAIRequest(
     val model: String,
     val messages: List<Message>,
     val tools: List<JsonObject>? = null,
-    @SerializedName("tool_choice") val tool_choice: String? = null
+    @SerializedName("tool_choice") val toolChoice: String? = null
 )

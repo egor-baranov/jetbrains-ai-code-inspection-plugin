@@ -9,10 +9,9 @@ import javax.swing.JPanel
 import javax.swing.Timer
 import kotlin.math.sin
 
-class SkeletonLoadingComponent() : JPanel() {
+class SkeletonLoadingComponent : JPanel() {
     private val animationTimer: Timer
     private var alpha = 0f
-    private val items = mutableListOf<JComponent>()
 
     init {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)

@@ -10,11 +10,10 @@ class RequestContextHandler {
 
     fun handleRequestContext(arguments: String): Action {
         val args = gson.fromJson(arguments, RequestContextArgs::class.java)
-        println("requesting extra context: $arguments")
-        return Action.RequestContext(contextType = args.context_type)
+        return Action.RequestContext(contextType = args.contextType)
     }
 
     private data class RequestContextArgs(
-        @SerializedName("context_type") val context_type: String
+        @SerializedName("context_type") val contextType: String
     )
 }

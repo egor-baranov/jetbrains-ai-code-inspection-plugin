@@ -19,11 +19,6 @@ class AddInspectionHandler(
         inspectionOffset: Int
     ): Action? {
         if (InspectionService.getInstance(project).inspectionFiles.size >= inspectionOffset) {
-            println(
-                "Max inspection limit (${inspectionOffset}) exceeded, " +
-                        "current is ${InspectionService.getInstance(project).inspectionFiles.size}"
-            )
-
             InspectionService.getInstance(project).cancelInspection()
             return null
         }
@@ -32,7 +27,7 @@ class AddInspectionHandler(
         val inspection = InspectionService.Inspection(
             id = UUID.randomUUID().toString(),
             description = args.description,
-            fixPrompt = args.fix_prompt
+            fixPrompt = args.fixPrompt
         )
 
         InspectionService.getInstance(project).putInspection(inspection, files)
@@ -41,6 +36,6 @@ class AddInspectionHandler(
 
     private data class AddInspectionArgs(
         val description: String,
-        @SerializedName("fix_prompt") val fix_prompt: String
+        @SerializedName("fix_prompt") val fixPrompt: String
     )
 }

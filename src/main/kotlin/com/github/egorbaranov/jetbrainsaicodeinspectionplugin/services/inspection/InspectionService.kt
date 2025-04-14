@@ -13,6 +13,7 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.util.messages.Topic
 import org.jdom.Element
+import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
 import javax.swing.SwingUtilities
@@ -28,7 +29,6 @@ class InspectionService(private val project: Project) : PersistentStateComponent
 
     private val tasks = mutableListOf<Task>()
 
-    // Inspection management
     fun putInspection(inspection: Inspection, files: List<CodeFile>) {
         inspectionsById[inspection.id] = inspection
         inspectionFiles.getOrPut(inspection) { mutableListOf() }
@@ -48,8 +48,6 @@ class InspectionService(private val project: Project) : PersistentStateComponent
     fun getTasks(): List<Task> = tasks
 
     fun setInspectionDescription(id: String, description: String) {
-        println("set inspection description: id=$id, description=$description")
-
         val inspection = inspectionsById[id] ?: return
         val newInspection = inspection.copy(description = description)
         val filesById = inspectionFiles[inspection].orEmpty().toMutableList()
@@ -65,14 +63,9 @@ class InspectionService(private val project: Project) : PersistentStateComponent
     ) {
         val existingFiles = inspectionFiles[inspection]?.map { it.path }?.toSet().orEmpty()
         val filteredFiles = files.filter { !existingFiles.contains(it.path) }.toSet().toList()
-        println("existing files: $existingFiles")
-        println("filtered files: ${filteredFiles.map { it.path }}")
         inspectionLoading(inspection)
 
         performFixWithProgress(inspection, filteredFiles) {
-            println("added files to inspection: ${filteredFiles.size}}")
-            println("Filtered files size: ${filteredFiles.size}")
-
             synchronized(inspectionFiles) {
                 val existing = inspectionFiles[inspection]?.map { it.path }?.toSet().orEmpty()
                 val filtered = it.filter { !existing.contains(it.path) }
@@ -147,7 +140,6 @@ class InspectionService(private val project: Project) : PersistentStateComponent
     }
 
     private fun inspectionLoaded(inspection: Inspection) {
-        println("Inspection loaded: $inspection")
         project.messageBus.syncPublisher(INSPECTION_CHANGE_TOPIC).inspectionLoaded(inspection)
     }
 
@@ -263,7 +255,7 @@ class InspectionService(private val project: Project) : PersistentStateComponent
             return project.service()
         }
 
-        val logger = LoggerFactory.getLogger(InspectionService::class.java)
+        val logger: Logger = LoggerFactory.getLogger(InspectionService::class.java)
         val INSPECTION_CHANGE_TOPIC = Topic.create(
             "AI Code Inspections Changed",
             InspectionChangeListener::class.java

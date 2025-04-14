@@ -18,8 +18,6 @@ class ComplexityLineMarkerProvider: LineMarkerProviderDescriptor() {
         elements: MutableList<out PsiElement>,
         result: MutableCollection<in LineMarkerInfo<*>>
     ) {
-        println("collectSlowLineMarkers")
-
         for (element in elements) {
             val hint = ComplexityInfoHint(element, TextRange.EMPTY_RANGE)
             result.add(hint)

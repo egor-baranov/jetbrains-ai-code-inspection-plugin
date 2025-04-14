@@ -63,7 +63,7 @@ class OpenAIClientTest : BasePlatformTestCase() {
         openAIClient = OpenAIClient(mockProject)
     }
 
-    fun `testAnalyzeFile should return empty result when no tool calls`() {
+    fun `test analyzeFile should return empty result when no tool calls`() {
         val response = OpenAIResponse(
             choices = listOf(OpenAIResponse.Choice(Message(role = "assistant", content = "test"))),
             error = null
@@ -98,7 +98,6 @@ class OpenAIClientTest : BasePlatformTestCase() {
         every { mockRestApiClient.executeRequest(any(), any()) } returns mockResponse
 
         val result = openAIClient.performFix(inspection, listOf(codeFile))
-        println("result: $result")
         assertEquals("fixed", result[0].content)
     }
 

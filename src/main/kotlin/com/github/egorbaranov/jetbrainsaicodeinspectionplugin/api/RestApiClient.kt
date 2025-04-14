@@ -34,7 +34,7 @@ class RestApiClient(
             model = "gpt-4o",
             messages = messages,
             tools = tools,
-            tool_choice = "auto"
+            toolChoice = "auto"
         )
 
         val jsonBody = gson.toJson(requestBody)
@@ -54,7 +54,6 @@ class RestApiClient(
             }
 
             val responseBody = response.body?.string() ?: throw IOException("Empty response body")
-            println("Raw response: $responseBody")
             logger.debug("Raw response: $responseBody")
 
             gson.fromJson(responseBody, OpenAIResponse::class.java).also {

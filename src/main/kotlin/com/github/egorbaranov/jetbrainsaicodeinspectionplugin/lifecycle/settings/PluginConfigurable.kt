@@ -8,13 +8,11 @@ import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileChooser.FileChooserFactory
 import com.intellij.openapi.fileChooser.FileSaverDescriptor
-import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.options.SearchableConfigurable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.NlsContexts
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.dsl.builder.panel
@@ -23,11 +21,7 @@ import com.intellij.util.ui.JBUI
 import java.awt.*
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
-import java.io.File
 import java.io.IOException
-import java.nio.charset.StandardCharsets
-import java.nio.file.Files
-import java.time.Instant
 import javax.swing.*
 import javax.swing.table.AbstractTableModel
 import javax.swing.table.DefaultTableCellRenderer
@@ -133,8 +127,8 @@ class PluginConfigurable : SearchableConfigurable {
                                 model = createTableModel()
 
                                 tableHeader.apply {
-                                    foreground = JBColor.namedColor("Label.foreground", Color.DARK_GRAY)
-                                    background = JBColor.namedColor("Panel.background", Color.LIGHT_GRAY)
+                                    foreground = JBColor.namedColor("Label.foreground", JBColor.DARK_GRAY)
+                                    background = JBColor.namedColor("Panel.background", JBColor.LIGHT_GRAY)
                                     font = font.deriveFont(Font.BOLD)
                                 }
 
@@ -299,8 +293,6 @@ class PluginConfigurable : SearchableConfigurable {
     }
 
     private fun exportStringWithFileChooser(project: Project, initialContent: String) {
-        println("export string: $initialContent")
-
         ApplicationManager.getApplication().invokeLater {
             val descriptor = FileSaverDescriptor(
                 "Export Text Content",
@@ -350,7 +342,7 @@ class PluginConfigurable : SearchableConfigurable {
         return JPanel(BorderLayout()).also { panel ->
             val titleLabel = JLabel(titleText).apply {
                 font = font.deriveFont(Font.BOLD, 12f)
-                foreground = JBColor.namedColor("Label.infoForeground", Color.GRAY)
+                foreground = JBColor.namedColor("Label.infoForeground", JBColor.GRAY)
                 horizontalAlignment = SwingConstants.CENTER
                 border = BorderFactory.createEmptyBorder(8, 0, 4, 0)
             }
@@ -372,7 +364,7 @@ class PluginConfigurable : SearchableConfigurable {
             panel.preferredSize = Dimension(120, 100)
             panel.minimumSize = Dimension(120, 100)
             panel.border = UIUtils.createRoundedBorder()
-            panel.background = JBColor.namedColor("Panel.background", Color.WHITE)
+            panel.background = JBColor.namedColor("Panel.background", JBColor.WHITE)
         }
     }
 }

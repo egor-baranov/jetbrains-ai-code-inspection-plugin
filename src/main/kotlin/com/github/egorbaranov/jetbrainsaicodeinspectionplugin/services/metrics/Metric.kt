@@ -37,8 +37,6 @@ data class Metric(
             id = id,
             params = params,
             timestamp = Clock.System.now().toString()
-        ).also {
-            println("new metric: $it")
-        }
+        )
     }
 }

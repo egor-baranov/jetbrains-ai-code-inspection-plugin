@@ -40,7 +40,6 @@ class PsiCrawler(
                     val childUrls = getChildUrls(currentUrl)
                     childUrls.filter { visited.add(it) }
                         .forEach {
-                            println("queue add $it")
                             queue.add(it)
                         }
                 }

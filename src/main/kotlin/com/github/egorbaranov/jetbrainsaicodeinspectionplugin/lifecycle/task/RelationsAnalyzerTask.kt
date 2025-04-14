@@ -59,11 +59,9 @@ class RelationsAnalyzerTask(
         }.toSet()
 
         val entities = relations.entries.filterNot {
-            println("Skip file: ${inspectedFiles.contains(it.key.virtualFile.url)}")
             inspectedFiles.contains(it.key.virtualFile.url)
         }.associate { it.key to it.value }
 
-        println("Offset: $inspectionOffset, entities: $entities")
         val processedFiles = mutableSetOf<PsiFile>()
         for (file in entities.map { it.key }) {
             indicator.checkCanceled()
@@ -77,7 +75,6 @@ class RelationsAnalyzerTask(
                 try {
                     updateProgress(indicator, file.name, processed.get(), total)
                     processFile(file, inspectionOffset)
-                    println("process file: $file")
                     processed.incrementAndGet()
                 } catch (e: Exception) {
                     MetricService.getInstance(project).error(e)
@@ -89,7 +86,6 @@ class RelationsAnalyzerTask(
             processedFiles.addAll(relatedFiles + file)
         }
 
-        println("ALL FILES PROCESSED")
         onComplete()
     }
 
@@ -100,16 +96,8 @@ class RelationsAnalyzerTask(
     ): AnalysisResult {
         return application.runReadAction<AnalysisResult> {
             val results = OpenAIClient.getInstance(project).analyzeFile(file, inspectionOffset = inspectionOffset)
-            application.invokeLater {
-                handleAnalysisResults(results)
-            }
             return@runReadAction results
         }
-    }
-
-    private fun handleAnalysisResults(results: AnalysisResult) {
-        println("Analyze results size: ${results.content?.length}")
-
     }
 
     private fun updateProgress(indicator: ProgressIndicator, fileName: String, processed: Int, total: Int) {
@@ -123,7 +111,6 @@ class RelationsAnalyzerTask(
     private fun handleCancellation() {
         application.invokeLater {
             onProgressUpdate("Analysis cancelled")
-            println("Analysis cancelled by user")
         }
     }
 

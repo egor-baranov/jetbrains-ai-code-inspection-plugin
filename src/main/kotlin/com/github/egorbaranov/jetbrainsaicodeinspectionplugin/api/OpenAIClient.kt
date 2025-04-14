@@ -27,7 +27,6 @@ class OpenAIClient(
         file: PsiFile,
         inspectionOffset: Int
     ): AnalysisResult {
-        println("Process file: $file")
         val crawler = PsiCrawler(project)
         val result = try {
             var toolCall: AnalysisResult? = null
@@ -37,22 +36,18 @@ class OpenAIClient(
                 val files = (listOf(file) + relatedFiles).toSet().map {
                     InspectionService.CodeFile(it.virtualFile.url, it.text)
                 }
-                println("PROCESSING FILES: ${files.map { it.path }}")
 
                 val inspections = InspectionService.getInstance(project).getInspections()
-                println("inspections size: ${inspections.size}")
                 val messages = createMessages(
                     files,
                     inspections
                 )
 
                 val tools = ToolsProvider.createTools(inspections.size < inspectionOffset)
-                println("tools: ${tools.size}")
                 val response = RestApiClient.getInstance(project).executeRequest(messages, tools)
 
                 toolCall = processToolCalls(response, files, inspectionOffset)
                 if (toolCall.actions.all { it is Action.RequestContext }) {
-                    println("No request context found: ${toolCall.actions}")
                     break
                 }
             }
@@ -180,8 +175,7 @@ class OpenAIClient(
         files: List<InspectionService.CodeFile>,
         inspectionOffset: Int
     ): AnalysisResult {
-        println("process tool calls: ${response.choices?.firstOrNull()?.message?.tool_calls}")
-        val toolResults = response.choices?.firstOrNull()?.message?.tool_calls
+        val toolResults = response.choices?.firstOrNull()?.message?.toolCalls
             ?.mapNotNull { toolCall: ToolCall ->
                 try {
                     when (toolCall.function.name) {

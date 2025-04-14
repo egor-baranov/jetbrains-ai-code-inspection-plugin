@@ -48,7 +48,7 @@ class ComplexityInlayHintsCollector(
 
                 val spaceWidth = font.getStringBounds(
                     " ",
-                    object : FontRenderContext() {}).width // Approximate space width
+                    object : FontRenderContext() {}).width
                 val tabWidth = spaceWidth * tabSize
 
                 return@runReadAction leadingWhitespace.sumOf { c ->

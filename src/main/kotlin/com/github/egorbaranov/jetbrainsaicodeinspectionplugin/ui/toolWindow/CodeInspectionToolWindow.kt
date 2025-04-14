@@ -104,7 +104,6 @@ class CodeInspectionToolWindow(
             object : InspectionService.InspectionChangeListener {
 
                 override fun inspectionLoading(inspection: InspectionService.Inspection) {
-                    println("inspection loading: $inspection")
                     contentPanel.add(SkeletonLoadingComponent())
                 }
 
@@ -118,7 +117,6 @@ class CodeInspectionToolWindow(
                 }
 
                 override fun inspectionLoaded(inspection: InspectionService.Inspection) {
-                    println("inspection loaded: $inspection")
                     ApplicationManager.getApplication().invokeAndWait {
                         val componentToRemove = contentPanel.components.firstOrNull {
                             it is SkeletonLoadingComponent
@@ -169,16 +167,11 @@ class CodeInspectionToolWindow(
             RelationsAnalyzerTask(
                 project,
                 inspectionOffset = inspectionOffset,
-                onProgressUpdate = { status ->
-                    println("Analyze progress: $status")
-                },
+                onProgressUpdate = { },
                 onComplete = {
-                    println("Analysis completed successfully")
                     onComplete.run()
                 },
-                onError = { error ->
-                    println("Handled error: $error")
-                }
+                onError = { }
             )
         )
     }
@@ -194,7 +187,6 @@ class CodeInspectionToolWindow(
                     override fun mouseClicked(e: MouseEvent?) {
                         MetricService.getInstance(project).collect(Metric.MetricID.EXECUTE)
                         analyzeRelationsWithProgress(project, comboBox.item) {
-                            println("ANALYZE COMPLETED")
                             updateContent()
                         }
                     }
@@ -300,15 +292,10 @@ class CodeInspectionToolWindow(
         }
 
         if (project.isDisposed || !toolWindow.component.isShowing) return
-
         contentPanel.removeAll()
-        println("Update content: ${InspectionService.getInstance(project).inspectionFiles.size}")
 
         try {
             val inspections = InspectionService.getInstance(project).inspectionFiles
-            println("All inspections: ${inspections.size}")
-            println("Values: ${inspections.map { "id=${it.key.id}, description=${it.key.description}" }}")
-
             inspections.forEach { (inspection, affectedFiles) ->
                 contentPanel.add(
                     createCollapsiblePanel(
@@ -320,7 +307,6 @@ class CodeInspectionToolWindow(
                 )
             }
 
-            println("task size: ${InspectionService.getInstance(project).getTasks()}")
             repeat(
                 max(
                     min(
@@ -366,7 +352,6 @@ class CodeInspectionToolWindow(
 
                     addMouseListener(object : MouseAdapter() {
                         override fun mouseClicked(e: MouseEvent?) {
-                            println("remove inspection: ${item.inspection}")
                             MetricService.getInstance(project).collect(Metric.MetricID.DELETE_INSPECTION)
                             InspectionService.getInstance(project).removeInspection(item.inspection)
                             contentPanel.remove(collapsiblePanel)
@@ -396,7 +381,6 @@ class CodeInspectionToolWindow(
                         border = BorderFactory.createEmptyBorder()
 
                         document.addUndoableEditListener {
-                            println("document edited")
                             InspectionService.getInstance(project).setInspectionDescription(
                                 item.inspection.id,
                                 document.getText(0, document.length)
@@ -407,8 +391,6 @@ class CodeInspectionToolWindow(
                     add(Box.createVerticalStrut(8))
                     add(textArea)
                     add(Box.createVerticalStrut(8))
-
-                    println("Affected files size: ${item.affectedFiles.size}")
 
                     item.affectedFiles.forEach { codeFile ->
                         val psiFile = ReadAction.compute<PsiFile?, Throwable> {
