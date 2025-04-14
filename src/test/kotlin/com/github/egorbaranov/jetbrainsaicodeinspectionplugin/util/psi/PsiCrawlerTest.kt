@@ -6,8 +6,11 @@ import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiFile
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.mockk.every
+import io.mockk.junit5.MockKExtension
 import io.mockk.mockk
+import org.junit.jupiter.api.extension.ExtendWith
 
+@ExtendWith(MockKExtension::class)
 class PsiCrawlerTest : BasePlatformTestCase() {
 
     private val mockProject: Project = MockProject(null) { }

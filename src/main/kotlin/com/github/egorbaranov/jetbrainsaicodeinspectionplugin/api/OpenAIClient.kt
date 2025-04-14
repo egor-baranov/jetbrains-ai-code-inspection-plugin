@@ -11,7 +11,6 @@ import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.handler.Reques
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.MetricService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.psi.PsiCrawler
-import com.google.gson.Gson
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
@@ -20,10 +19,9 @@ import com.intellij.psi.PsiFile
 import javax.xml.bind.ValidationException
 
 @Service(Service.Level.PROJECT)
-class OpenAIClient(private val project: Project) {
-
-    private val logger = Logger.getInstance(javaClass)
-    private val restApiClient = RestApiClient()
+class OpenAIClient(
+    private val project: Project
+) {
 
     fun analyzeFile(
         file: PsiFile,
@@ -50,7 +48,7 @@ class OpenAIClient(private val project: Project) {
 
                 val tools = ToolsProvider.createTools(inspections.size < inspectionOffset)
                 println("tools: ${tools.size}")
-                val response = restApiClient.executeRequest(messages, tools)
+                val response = RestApiClient.getInstance(project).executeRequest(messages, tools)
 
                 toolCall = processToolCalls(response, files, inspectionOffset)
                 if (toolCall.actions.all { it is Action.RequestContext }) {
@@ -112,7 +110,7 @@ class OpenAIClient(private val project: Project) {
                             )
                         )
 
-                        val response = restApiClient.executeRequest(messages, emptyList())
+                        val response = RestApiClient.getInstance(project).executeRequest(messages, emptyList())
                         val rawResponse = response.choices?.firstOrNull()?.message?.content ?: ""
 
                         fixedContent = rawResponse
@@ -144,7 +142,7 @@ class OpenAIClient(private val project: Project) {
         }
     }
 
-    private fun createMessages(
+    fun createMessages(
         files: List<InspectionService.CodeFile>,
         existingInspections: List<InspectionService.Inspection>
     ): List<Message> {
@@ -177,7 +175,7 @@ class OpenAIClient(private val project: Project) {
         )
     }
 
-    private fun processToolCalls(
+    fun processToolCalls(
         response: OpenAIResponse,
         files: List<InspectionService.CodeFile>,
         inspectionOffset: Int
@@ -209,7 +207,7 @@ class OpenAIClient(private val project: Project) {
                     logger.warn("Failed to process tool call", e)
                     Action.Error("Failed to process ${toolCall.function.name}: ${e.message}")
                 }
-            } ?: emptyList<Action>()
+            } ?: emptyList()
 
         return AnalysisResult(
             content = response.choices?.firstOrNull()?.message?.content,
@@ -220,6 +218,9 @@ class OpenAIClient(private val project: Project) {
 
 
     companion object {
+
         fun getInstance(project: Project): OpenAIClient = project.service()
+
+        private val logger = Logger.getInstance(OpenAIClient::class.java)
     }
 }

@@ -8,12 +8,13 @@ import java.util.concurrent.ConcurrentHashMap
 
 class PsiCrawler(
     private val project: Project,
-    private val psiFileRelationService: PsiFileRelationService = PsiFileRelationService.getInstance(project)
+    private var psiFileRelationService: PsiFileRelationService = PsiFileRelationService.getInstance(project)
 ) {
 
     private val cache = ConcurrentHashMap<Pair<String, Int>, List<PsiFile>>()
 
     fun getFiles(rootFile: PsiFile, offset: Int = 3): List<PsiFile> {
+        val project = rootFile.project
         return ReadAction.nonBlocking<List<PsiFile>> {
             val rootUrl = getFileUrl(rootFile) ?: return@nonBlocking emptyList()
             val cacheKey = rootUrl to offset
@@ -29,7 +30,7 @@ class PsiCrawler(
 
             while (queue.isNotEmpty() && result.size < offset) {
                 val currentUrl = queue.removeFirst()
-                getValidFile(currentUrl)?.let { psiFile ->
+                getValidFile(project, currentUrl)?.let { psiFile ->
                     if (result.size < offset) {
                         result.add(psiFile)
                     }
@@ -59,7 +60,7 @@ class PsiCrawler(
             .getOrDefault(url, emptySet())
     }
 
-    private fun getValidFile(url: String): PsiFile? {
+    private fun getValidFile(project: Project, url: String): PsiFile? {
         return psiFileRelationService.getValidFile(project, url)
     }
 }

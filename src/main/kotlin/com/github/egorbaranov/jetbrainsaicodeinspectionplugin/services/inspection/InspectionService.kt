@@ -23,7 +23,7 @@ import javax.swing.SwingUtilities
 )
 @Service(Service.Level.PROJECT)
 class InspectionService(private val project: Project) : PersistentStateComponent<Element> {
-    val inspectionsById = ConcurrentHashMap<String, Inspection>()
+    private val inspectionsById = ConcurrentHashMap<String, Inspection>()
     val inspectionFiles = ConcurrentHashMap<Inspection, MutableList<CodeFile>>()
 
     private val tasks = mutableListOf<Task>()

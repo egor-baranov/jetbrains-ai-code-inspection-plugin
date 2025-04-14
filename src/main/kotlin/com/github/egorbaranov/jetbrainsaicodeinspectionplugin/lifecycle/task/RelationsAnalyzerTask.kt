@@ -76,7 +76,7 @@ class RelationsAnalyzerTask(
             scheduler.schedule({
                 try {
                     updateProgress(indicator, file.name, processed.get(), total)
-                    processFile(file, inspectionOffset, relatedFiles, indicator)
+                    processFile(file, inspectionOffset)
                     println("process file: $file")
                     processed.incrementAndGet()
                 } catch (e: Exception) {
@@ -96,9 +96,7 @@ class RelationsAnalyzerTask(
 
     private fun processFile(
         file: PsiFile,
-        inspectionOffset: Int,
-        relatedFiles: List<PsiFile>,
-        indicator: ProgressIndicator
+        inspectionOffset: Int
     ): AnalysisResult {
         return application.runReadAction<AnalysisResult> {
             val results = OpenAIClient.getInstance(project).analyzeFile(file, inspectionOffset = inspectionOffset)

@@ -18,7 +18,6 @@ class AddInspectionHandler(
         files: List<InspectionService.CodeFile>,
         inspectionOffset: Int
     ): Action? {
-        println("inspections size: ${InspectionService.getInstance(project).inspectionsById.size}, files size: ${files.size}")
         if (InspectionService.getInstance(project).inspectionFiles.size >= inspectionOffset) {
             println(
                 "Max inspection limit (${inspectionOffset}) exceeded, " +
