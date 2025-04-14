@@ -14,7 +14,7 @@ This plugin helps you tackle technical debt by running deep inspections across y
 ## How does this work?
 Behind the scenes, it leverages a smart, efficient inspection engine that crawls the file system and PSI tree to detect complex, hard-to-maintain code. Once inspections are collected, the plugin builds a prompt enriched with project context and sends it to an LLM (via OpenAI). The response is then turned into actionable fixes applied across relevant files. 
 
-## How does this work?
+## What can it do?
 
 
 * Cross-file inspection results that highlight deeply nested or smelly logic
