@@ -15,6 +15,7 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.cancellation.CancellationException
 
+// TODO: make singleton
 class ContextProcessor(
     private val project: Project
 ) {
@@ -55,18 +56,14 @@ class ContextProcessor(
         indicator: ProgressIndicator,
         scope: CoroutineScope
     ) {
-        runReadAction {
-            if (!dir.isValid) return@runReadAction
-            indicator.checkCanceled()
-            indicator.text2 = "Indexing: ${dir.virtualFile.url}"
+        if (!dir.isValid) return
+        indicator.checkCanceled()
+        indicator.text2 = "Indexing: ${dir.virtualFile.url}"
 
-            processElements(dir, handler, indicator, scope)
-
-            dir.children.forEach { child ->
-                when (child) {
-                    is PsiFile -> processFile(child, handler, indicator, scope)
-                    is PsiDirectory -> processDirectory(child, handler, indicator, scope)
-                }
+        dir.children.forEach { child ->
+            when (child) {
+                is PsiFile -> processFile(child, handler, indicator, scope)
+                is PsiDirectory -> processDirectory(child, handler, indicator, scope)
             }
         }
     }
@@ -77,14 +74,12 @@ class ContextProcessor(
         indicator: ProgressIndicator,
         scope: CoroutineScope
     ) {
-        runReadAction {
-            if (!file.isValid) return@runReadAction
-            indicator.checkCanceled()
-            indicator.text = "Processing file: ${file.name}"
-            indicator.fraction = calculateProgress()
+        if (!file.isValid) return
+        indicator.checkCanceled()
+        indicator.text = "Processing file: ${file.name}"
+        indicator.fraction = calculateProgress()
 
-            processElements(file, handler, indicator, scope)
-        }
+        processElements(file, handler, indicator, scope)
     }
 
     private fun processElements(
@@ -93,41 +88,39 @@ class ContextProcessor(
         indicator: ProgressIndicator,
         scope: CoroutineScope
     ) {
-        runReadAction {
-            if (!container.isValid) return@runReadAction
-            PsiTreeUtil.processElements(container) { element ->
-                try {
-                    indicator.checkCanceled()
-                    if (element.isValid && handler.shouldProcess(element)) {
-                        val key = runReadAction { getPersistentKey(element) }
-                        indexData[key] = element
-                        scope.launch {
-                            try {
-                                val isValid = runReadAction { element.isValid }
-                                if (isValid) {
-                                    handler.processElement(element)
-                                } else {
-                                    indexData.remove(key)
-                                }
-                            } catch (e: PsiInvalidElementAccessException) {
-                                logger.warn("Skipped invalid element: ${e.message}")
-                                indexData.remove(key)
-                            } catch (e: CancellationException) {
-                                throw e
-                            } catch (e: Exception) {
-                                MetricService.getInstance(project).error(e)
-                                logger.warn("Error processing element", e)
+        if (!container.isValid) return
+        PsiTreeUtil.processElements(container) { element ->
+            try {
+                indicator.checkCanceled()
+                if (element.isValid && handler.shouldProcess(element)) {
+                    val key = runReadAction { getPersistentKey(element) }
+                    indexData[key] = element
+                    scope.launch {
+                        try {
+                            val isValid = runReadAction { element.isValid }
+                            if (isValid) {
+                                handler.processElement(element)
+                            } else {
                                 indexData.remove(key)
                             }
+                        } catch (e: PsiInvalidElementAccessException) {
+                            logger.warn("Skipped invalid element: ${e.message}")
+                            indexData.remove(key)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            MetricService.getInstance(project).error(e)
+                            logger.warn("Error processing element", e)
+                            indexData.remove(key)
                         }
                     }
-                } catch (e: ProcessCanceledException) {
-                    throw e
-                } catch (e: Exception) {
-                    logger.warn("Error during element processing", e)
                 }
-                true
+            } catch (e: ProcessCanceledException) {
+                throw e
+            } catch (e: Exception) {
+                logger.warn("Error during element processing", e)
             }
+            true
         }
     }
 

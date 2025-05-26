@@ -1,6 +1,5 @@
 package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.psi
 
-import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context.PsiFileRelationService
 import com.intellij.mock.MockProject
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiFile
@@ -14,16 +13,6 @@ import org.junit.jupiter.api.extension.ExtendWith
 class PsiCrawlerTest : BasePlatformTestCase() {
 
     private val mockProject: Project = MockProject(null) { }
-
-    private fun createFakeService(
-        fileMapping: Map<String, PsiFile>,
-        urlRelations: Map<String, Set<String>>
-    ): PsiFileRelationService {
-        return mockk<PsiFileRelationService>(relaxed = true).apply {
-            every { getUrlRelations() } returns urlRelations
-            every { getValidFile(any(), any()) } answers { fileMapping[arg(1)] }
-        }
-    }
 
     fun `test get files with default offset`() {
         val rootFile = myFixture.addFileToProject("root.txt", "root content")

@@ -31,8 +31,9 @@ class OpenAIClient(
         val result = try {
             var toolCall: AnalysisResult? = null
 
+            // TODO: add proper caching
+            val relatedFiles = crawler.getFiles(file, 10)
             for (step in 1..3) {
-                val relatedFiles = crawler.getFiles(file, step * 3)
                 val files = (listOf(file) + relatedFiles).toSet().map {
                     InspectionService.CodeFile(it.virtualFile.url, it.text)
                 }

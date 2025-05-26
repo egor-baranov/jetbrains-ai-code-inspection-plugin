@@ -4,7 +4,6 @@ import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.entity.Action
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.entity.ToolCall
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.entity.openai.Message
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.entity.openai.OpenAIResponse
-import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context.PsiFileRelationService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.MetricService
 import com.intellij.openapi.project.Project
@@ -27,7 +26,6 @@ class OpenAIClientTest : BasePlatformTestCase() {
     private val mockMetricService = mockk<MetricService>()
     private val mockPsiFile = mockk<PsiFile>()
     private val mockVirtualFile = mockk<VirtualFile>()
-    private val mockPsiFileRelationService = mockk<PsiFileRelationService>()
 
     override fun setUp() {
         super.setUp()
@@ -35,14 +33,12 @@ class OpenAIClientTest : BasePlatformTestCase() {
         mockkStatic(
             InspectionService::class,
             MetricService::class,
-            PsiFileRelationService::class,
             RestApiClient::class
         )
 
         // Service instance mocks
         every { InspectionService.getInstance(mockProject) } returns mockInspectionService
         every { MetricService.getInstance(mockProject) } returns mockMetricService
-        every { PsiFileRelationService.getInstance(mockProject) } returns mockPsiFileRelationService
         every { RestApiClient.getInstance(mockProject) } returns mockRestApiClient
 
         // Service method stubs
@@ -56,8 +52,6 @@ class OpenAIClientTest : BasePlatformTestCase() {
         every { mockPsiFile.text } returns "text"
         every { mockVirtualFile.url } returns "sample url"
 
-        every { mockPsiFileRelationService.getUrlRelations() } returns mapOf()
-        every { mockPsiFileRelationService.getValidFile(mockProject, any()) } returns mockPsiFile
         every { mockMetricService.error(any()) } just Runs
 
         openAIClient = OpenAIClient(mockProject)

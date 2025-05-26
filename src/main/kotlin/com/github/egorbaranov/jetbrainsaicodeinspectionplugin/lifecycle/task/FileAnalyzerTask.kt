@@ -2,22 +2,22 @@ package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.task
 
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.OpenAIClient
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.entity.AnalysisResult
-import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context.PsiFileRelationService
-import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.MetricService
-import com.intellij.openapi.application.ReadAction
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.psi.PsiCrawler
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.psi.PsiFile
+import com.intellij.psi.PsiManager
 import com.intellij.util.application
 import com.intellij.util.concurrency.AppExecutorUtil
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
-class RelationsAnalyzerTask(
+class FileAnalyzerTask(
     private val project: Project,
     private val inspectionOffset: Int = 3,
     private val onProgressUpdate: (String) -> Unit = {},
@@ -27,8 +27,7 @@ class RelationsAnalyzerTask(
 
     override fun run(indicator: ProgressIndicator) {
         try {
-            val relations = readRelations()
-            processRelations(relations, indicator)
+            processFiles(getOpenedFiles(project), indicator)
         } catch (e: ProcessCanceledException) {
             MetricService.getInstance(project).error(e)
             handleCancellation()
@@ -38,35 +37,29 @@ class RelationsAnalyzerTask(
         }
     }
 
-    private fun readRelations(): Map<PsiFile, List<PsiFile>> {
-        return ReadAction.compute<Map<PsiFile, List<PsiFile>>, Throwable> {
-            PsiFileRelationService.getInstance(project).getRelations(project)
-        }
+    private fun getOpenedFiles(project: Project): List<PsiFile> {
+        val psiManager = PsiManager.getInstance(project)
+        val fileEditorManager = FileEditorManager.getInstance(project)
+        val virtualFiles = fileEditorManager.openFiles
+
+        return virtualFiles.mapNotNull { vf -> psiManager.findFile(vf) }
     }
 
-    private fun processRelations(
-        relations: Map<PsiFile, List<PsiFile>>,
+    private fun processFiles(
+        files: List<PsiFile>,
         indicator: ProgressIndicator
     ) {
-        val total = relations.size
+        val total = files.size
         val processed = AtomicInteger(0)
         val scheduler = AppExecutorUtil.getAppScheduledExecutorService()
         val delayMillis = 300L
         var currentDelay = 0L
 
-        val inspectedFiles = InspectionService.getInstance(project).getAffectedFiles().map {
-            it.path
-        }.toSet()
-
-        val entities = relations.entries.filterNot {
-            inspectedFiles.contains(it.key.virtualFile.url)
-        }.associate { it.key to it.value }
-
         val processedFiles = mutableSetOf<PsiFile>()
-        for (file in entities.map { it.key }) {
+        for (file in files) {
             indicator.checkCanceled()
 
-            val relatedFiles = entities[file].orEmpty().filterNot { processedFiles.contains(it) }
+            val relatedFiles = PsiCrawler.getInstance(project).getFiles(file).filterNot { processedFiles.contains(it) }
             if (processedFiles.contains(file) || relatedFiles.isEmpty()) {
                 continue
             }

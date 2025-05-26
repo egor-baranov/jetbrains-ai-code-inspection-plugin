@@ -1,65 +1,66 @@
 package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.psi
 
-import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context.PsiFileRelationService
-import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.components.Service
+import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.roots.ProjectFileIndex
+import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
-import java.util.concurrent.ConcurrentHashMap
+import com.intellij.psi.PsiNamedElement
+import com.intellij.psi.PsiRecursiveElementVisitor
+import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.psi.search.searches.ReferencesSearch
 
+@Service(Service.Level.PROJECT)
 class PsiCrawler(
-    private val project: Project,
-    private var psiFileRelationService: PsiFileRelationService = PsiFileRelationService.getInstance(project)
+    private val project: Project
 ) {
 
-    private val cache = ConcurrentHashMap<Pair<String, Int>, List<PsiFile>>()
+    fun getFiles(file: PsiFile, offset: Int = 3): List<PsiFile> {
+        val project: Project = file.project
+        val relatedFiles = mutableSetOf<PsiFile>()
+        val fileIndex = ProjectFileIndex.getInstance(project)
 
-    fun getFiles(rootFile: PsiFile, offset: Int = 3): List<PsiFile> {
-        val project = rootFile.project
-        return ReadAction.nonBlocking<List<PsiFile>> {
-            val rootUrl = getFileUrl(rootFile) ?: return@nonBlocking emptyList()
-            val cacheKey = rootUrl to offset
+        file.accept(object : PsiRecursiveElementVisitor() {
+            override fun visitElement(element: PsiElement) {
+                super.visitElement(element)
 
-            cache[cacheKey]?.let { return@nonBlocking it }
-
-            val result = mutableListOf<PsiFile>()
-            val visited = mutableSetOf<String>()
-            val queue = ArrayDeque<String>()
-
-            queue.add(rootUrl)
-            visited.add(rootUrl)
-
-            while (queue.isNotEmpty() && result.size < offset) {
-                val currentUrl = queue.removeFirst()
-                getValidFile(project, currentUrl)?.let { psiFile ->
-                    if (result.size < offset) {
-                        result.add(psiFile)
+                element.references.forEach { ref ->
+                    val resolved = ref.resolve()
+                    resolved?.containingFile?.let { resolvedFile ->
+                        if (isInProject(resolvedFile.virtualFile, fileIndex)) {
+                            relatedFiles.add(resolvedFile)
+                        }
                     }
                 }
 
-                if (result.size < offset) {
-                    val childUrls = getChildUrls(currentUrl)
-                    childUrls.filter { visited.add(it) }
-                        .forEach {
-                            queue.add(it)
+                if (element is PsiNamedElement) {
+                    ReferencesSearch.search(
+                        element,
+                        GlobalSearchScope.projectScope(project),
+                        false
+                    ).findAll().forEach { ref ->
+                        ref.element.containingFile?.let { usageFile ->
+                            if (isInProject(usageFile.virtualFile, fileIndex)) {
+                                relatedFiles.add(usageFile)
+                            }
                         }
+                    }
                 }
             }
+        })
 
-            result.take(offset).toSet().toList().also { cache[cacheKey] = it }
-        }.executeSynchronously()
+        relatedFiles.remove(file)
+        return relatedFiles.toList()
     }
 
-    private fun getFileUrl(file: PsiFile): String? {
-        return file.virtualFile?.url
+    private fun isInProject(virtualFile: VirtualFile?, fileIndex: ProjectFileIndex): Boolean {
+        return virtualFile != null && fileIndex.isInContent(virtualFile)
     }
 
-    private fun getChildUrls(url: String): Set<String> {
-        return psiFileRelationService
-            .getUrlRelations()
-            .getOrDefault(url, emptySet())
-    }
+    companion object {
 
-    private fun getValidFile(project: Project, url: String): PsiFile? {
-        return psiFileRelationService.getValidFile(project, url)
+        fun getInstance(project: Project): PsiCrawler = project.service()
     }
 }

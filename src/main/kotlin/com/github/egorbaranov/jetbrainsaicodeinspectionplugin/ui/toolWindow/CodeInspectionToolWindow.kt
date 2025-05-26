@@ -1,6 +1,6 @@
 package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.toolWindow
 
-import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.task.RelationsAnalyzerTask
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.task.FileAnalyzerTask
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.Metric
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.MetricService
@@ -162,9 +162,9 @@ class CodeInspectionToolWindow(
         }
     }
 
-    private fun analyzeRelationsWithProgress(project: Project, inspectionOffset: Int, onComplete: Runnable) {
+    private fun analyzeFilesWithProgress(project: Project, inspectionOffset: Int, onComplete: Runnable) {
         ProgressManager.getInstance().run(
-            RelationsAnalyzerTask(
+            FileAnalyzerTask(
                 project,
                 inspectionOffset = inspectionOffset,
                 onProgressUpdate = { },
@@ -186,7 +186,7 @@ class CodeInspectionToolWindow(
                 object : MouseAdapter() {
                     override fun mouseClicked(e: MouseEvent?) {
                         MetricService.getInstance(project).collect(Metric.MetricID.EXECUTE)
-                        analyzeRelationsWithProgress(project, comboBox.item) {
+                        analyzeFilesWithProgress(project, comboBox.item) {
                             updateContent()
                         }
                     }

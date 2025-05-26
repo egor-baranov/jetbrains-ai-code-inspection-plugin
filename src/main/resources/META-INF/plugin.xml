@@ -15,7 +15,6 @@
                 displayName="AI Code Inspection Plugin"/>
         <applicationService
                 serviceImplementation="com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.settings.PluginSettingsState"/>
-        <projectService serviceImplementation="com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.context.PsiFileRelationService"/>
 
         <toolWindow
                 factoryClass="com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.toolWindow.CodeInspectionWindowFactory"
@@ -23,9 +22,6 @@
                 anchor="right"
                 icon="AllIcons.Actions.EnableNewUi"
         />
-        <postStartupActivity
-                implementation="com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.startup.CodeInspectionProjectActivity"/>
-
         <codeInsight.inlayProviderFactory
                 implementation="com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.hint.ComplexityInlayHintsProviderFactory"/>
         <codeInsight.lineMarkerProvider language="Kotlin"
