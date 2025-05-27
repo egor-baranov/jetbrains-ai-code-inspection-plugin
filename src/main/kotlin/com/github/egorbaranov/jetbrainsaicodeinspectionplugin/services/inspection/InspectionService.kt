@@ -63,7 +63,6 @@ class InspectionService(private val project: Project) : PersistentStateComponent
     ) {
         val existingFiles = inspectionFiles[inspection]?.map { it.path }?.toSet().orEmpty()
         val filteredFiles = files.filter { !existingFiles.contains(it.path) }.toSet().toList()
-        inspectionLoading(inspection)
 
         performFixWithProgress(inspection, filteredFiles) {
             synchronized(inspectionFiles) {

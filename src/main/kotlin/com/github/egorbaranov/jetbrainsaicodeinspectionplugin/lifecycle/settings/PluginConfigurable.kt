@@ -35,6 +35,7 @@ class PluginConfigurable : SearchableConfigurable {
     private lateinit var apiKeyField: JBTextField
     private lateinit var apiUrlField: JBTextField
 
+
     override fun getId(): String = "my.plugin.settings"
 
     @NlsContexts.ConfigurableName
@@ -202,6 +203,10 @@ class PluginConfigurable : SearchableConfigurable {
                     cell(apiKeyField)
                 }
 
+                row("LLM API url") {
+                    cell(apiUrlField)
+                }
+
                 row {
                     cell(
                         JPanel().also {
@@ -210,14 +215,18 @@ class PluginConfigurable : SearchableConfigurable {
                     )
                 }
 
-                row("LLM API URL") {
-                    cell(apiUrlField)
+                row("Indexing with rich context") {
+                    checkBox("")
+                }
+
+                row("Retry quantity") {
+                    comboBox(listOf(0, 1, 2, 3))
                 }
 
                 row {
                     cell(
                         JPanel().also {
-                            it.add(Box.createVerticalStrut(16))
+                            it.add(Box.createVerticalStrut(8))
                         }
                     )
                 }

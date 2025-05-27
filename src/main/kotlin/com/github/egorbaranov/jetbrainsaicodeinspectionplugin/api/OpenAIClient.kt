@@ -8,6 +8,7 @@ import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.entity.openai.
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.handler.AddInspectionHandler
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.handler.ApplyInspectionHandler
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.handler.RequestContextHandler
+import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.settings.PluginSettingsState
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.MetricService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.psi.PsiCrawler
@@ -25,16 +26,15 @@ class OpenAIClient(
 
     fun analyzeFile(
         file: PsiFile,
+        relatedFiles: List<PsiFile>,
         inspectionOffset: Int
     ): AnalysisResult {
-        val crawler = PsiCrawler(project)
         val result = try {
             var toolCall: AnalysisResult? = null
 
             // TODO: add proper caching
-            val relatedFiles = crawler.getFiles(file, 10)
-            for (step in 1..3) {
-                val files = (listOf(file) + relatedFiles).toSet().map {
+            for (step in 1..PluginSettingsState.getInstance().indexingSteps) {
+                val files = (listOf(file) + relatedFiles.take(step * 3)).toSet().map {
                     InspectionService.CodeFile(it.virtualFile.url, it.text)
                 }
 
@@ -48,7 +48,7 @@ class OpenAIClient(
                 val response = RestApiClient.getInstance(project).executeRequest(messages, tools)
 
                 toolCall = processToolCalls(response, files, inspectionOffset)
-                if (toolCall.actions.all { it is Action.RequestContext }) {
+                if (toolCall.actions.all { it !is Action.RequestContext }) {
                     break
                 }
             }
@@ -69,7 +69,7 @@ class OpenAIClient(
     ): List<InspectionService.CodeFile> {
         return codeFiles.mapNotNull { codeFile ->
             try {
-                val maxAttempts = 3
+                val maxAttempts = PluginSettingsState.getInstance().retryQuantity + 1
                 var attempts = 0
                 var validFixFound = false
                 var fixedContent = codeFile.content

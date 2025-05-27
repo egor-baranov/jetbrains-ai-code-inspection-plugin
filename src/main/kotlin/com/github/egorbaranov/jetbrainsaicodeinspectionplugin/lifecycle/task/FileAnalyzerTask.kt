@@ -14,6 +14,7 @@ import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
 import com.intellij.util.application
 import com.intellij.util.concurrency.AppExecutorUtil
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -27,7 +28,55 @@ class FileAnalyzerTask(
 
     override fun run(indicator: ProgressIndicator) {
         try {
-            processFiles(getOpenedFiles(project), indicator)
+            val files = getOpenedFiles(project)
+            if (files.isEmpty()) {
+                onComplete()
+                return
+            }
+
+            val processed = AtomicInteger(0)
+            val total = files.size
+
+            // Kick off one non-blocking read action per file
+            val allFutures = files.map { file ->
+                PsiCrawler.getInstance(project)
+                    .getFilesAsync(file)
+                    .thenAcceptAsync({ relatedFiles ->
+                        if (indicator.isCanceled) throw ProcessCanceledException()
+
+                        val toProcess = relatedFiles.filterNot { it == file }
+                        if (toProcess.isEmpty()) {
+                            processed.incrementAndGet()
+                        } else {
+                            AppExecutorUtil.getAppScheduledExecutorService().schedule({
+                                try {
+                                    updateProgress(indicator, file.name, processed.get(), total)
+                                    processFile(file, toProcess, inspectionOffset)
+                                    processed.incrementAndGet()
+                                } catch (e: Exception) {
+                                    MetricService.getInstance(project).error(e)
+                                    handleError(e)
+                                }
+                            },  processed.get() * 200L, TimeUnit.MILLISECONDS)
+                        }
+                    }, AppExecutorUtil.getAppExecutorService())
+            }
+
+            CompletableFuture
+                .allOf(*allFutures.toTypedArray())
+                .whenComplete { _, err ->
+                    if (err is ProcessCanceledException) {
+                        MetricService.getInstance(project).error(err)
+                        handleCancellation()
+                    } else if (err != null) {
+                        MetricService.getInstance(project).error(err)
+                        handleError(err)
+                    } else {
+                        onComplete()
+                    }
+                }
+                .join()
+
         } catch (e: ProcessCanceledException) {
             MetricService.getInstance(project).error(e)
             handleCancellation()
@@ -39,61 +88,27 @@ class FileAnalyzerTask(
 
     private fun getOpenedFiles(project: Project): List<PsiFile> {
         val psiManager = PsiManager.getInstance(project)
-        val fileEditorManager = FileEditorManager.getInstance(project)
-        val virtualFiles = fileEditorManager.openFiles
-
-        return virtualFiles.mapNotNull { vf -> psiManager.findFile(vf) }
+        return FileEditorManager.getInstance(project)
+            .openFiles
+            .mapNotNull { vf -> psiManager.findFile(vf) }
     }
-
-    private fun processFiles(
-        files: List<PsiFile>,
-        indicator: ProgressIndicator
-    ) {
-        val total = files.size
-        val processed = AtomicInteger(0)
-        val scheduler = AppExecutorUtil.getAppScheduledExecutorService()
-        val delayMillis = 300L
-        var currentDelay = 0L
-
-        val processedFiles = mutableSetOf<PsiFile>()
-        for (file in files) {
-            indicator.checkCanceled()
-
-            val relatedFiles = PsiCrawler.getInstance(project).getFiles(file).filterNot { processedFiles.contains(it) }
-            if (processedFiles.contains(file) || relatedFiles.isEmpty()) {
-                continue
-            }
-
-            scheduler.schedule({
-                try {
-                    updateProgress(indicator, file.name, processed.get(), total)
-                    processFile(file, inspectionOffset)
-                    processed.incrementAndGet()
-                } catch (e: Exception) {
-                    MetricService.getInstance(project).error(e)
-                    handleError(e)
-                }
-            }, currentDelay, TimeUnit.MILLISECONDS)
-
-            currentDelay += delayMillis
-            processedFiles.addAll(relatedFiles + file)
-        }
-
-        onComplete()
-    }
-
 
     private fun processFile(
         file: PsiFile,
+        relatedFiles: List<PsiFile>,
         inspectionOffset: Int
     ): AnalysisResult {
-        return application.runReadAction<AnalysisResult> {
-            val results = OpenAIClient.getInstance(project).analyzeFile(file, inspectionOffset = inspectionOffset)
-            return@runReadAction results
-        }
+        return OpenAIClient
+            .getInstance(project)
+            .analyzeFile(file, relatedFiles, inspectionOffset = inspectionOffset)
     }
 
-    private fun updateProgress(indicator: ProgressIndicator, fileName: String, processed: Int, total: Int) {
+    private fun updateProgress(
+        indicator: ProgressIndicator,
+        fileName: String,
+        processed: Int,
+        total: Int
+    ) {
         indicator.apply {
             text = "Analyzing $fileName"
             fraction = processed.toDouble() / total.coerceAtLeast(1)
@@ -110,7 +125,6 @@ class FileAnalyzerTask(
     private fun handleError(e: Throwable) {
         application.invokeLater {
             onError(e)
-            MetricService.getInstance(project).error(e)
             Messages.showErrorDialog(
                 "Analysis failed: ${e.message}",
                 "Error"

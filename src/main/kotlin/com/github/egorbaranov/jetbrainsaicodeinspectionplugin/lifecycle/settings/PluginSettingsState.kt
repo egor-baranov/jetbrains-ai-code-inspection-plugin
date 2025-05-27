@@ -14,6 +14,10 @@ class PluginSettingsState : PersistentStateComponent<PluginSettingsState> {
     var apiKey: String = ""
     var apiUrl: String = DEFAULT_API_URL
 
+    var retryQuantity: Int = 0
+    var indexingSteps: Int = 1
+    var richIndexingContext: Boolean = true
+
     override fun getState(): PluginSettingsState = this
 
     override fun loadState(state: PluginSettingsState) {

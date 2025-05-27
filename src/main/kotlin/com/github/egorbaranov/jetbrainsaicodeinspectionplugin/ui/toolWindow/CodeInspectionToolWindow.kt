@@ -51,7 +51,6 @@ import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.*
 import kotlin.math.max
-import kotlin.math.min
 
 class CodeInspectionToolWindow(
     private val toolWindow: ToolWindow
@@ -67,6 +66,8 @@ class CodeInspectionToolWindow(
         it.toolTipText = "Inspection offset"
         it.selectedIndex = 1
     }
+
+    private var loadingInspections = 0
 
     init {
         rootPanel = createScrollableContent()
@@ -108,6 +109,7 @@ class CodeInspectionToolWindow(
                 }
 
                 override fun inspectionCancelled() {
+                    loadingInspections = max(loadingInspections - 1, 0)
                     ApplicationManager.getApplication().invokeAndWait {
                         val componentToRemove = contentPanel.components.firstOrNull {
                             it is SkeletonLoadingComponent
@@ -117,6 +119,7 @@ class CodeInspectionToolWindow(
                 }
 
                 override fun inspectionLoaded(inspection: InspectionService.Inspection) {
+                    loadingInspections = max(loadingInspections - 1, 0)
                     ApplicationManager.getApplication().invokeAndWait {
                         val componentToRemove = contentPanel.components.firstOrNull {
                             it is SkeletonLoadingComponent
@@ -186,6 +189,7 @@ class CodeInspectionToolWindow(
                 object : MouseAdapter() {
                     override fun mouseClicked(e: MouseEvent?) {
                         MetricService.getInstance(project).collect(Metric.MetricID.EXECUTE)
+                        loadingInspections = comboBox.item
                         analyzeFilesWithProgress(project, comboBox.item) {
                             updateContent()
                         }
@@ -307,14 +311,10 @@ class CodeInspectionToolWindow(
                 )
             }
 
+            println("comboBox.item: ${comboBox.item}, inspections.size: ${inspections.size}, second: ${InspectionService.getInstance(project).getTasks().size}")
+
             repeat(
-                max(
-                    min(
-                        comboBox.item - inspections.size,
-                        InspectionService.getInstance(project).getTasks().size
-                    ),
-                    0
-                )
+                loadingInspections
             ) {
                 contentPanel.add(SkeletonLoadingComponent())
             }
