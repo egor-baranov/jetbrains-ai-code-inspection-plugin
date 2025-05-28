@@ -37,7 +37,6 @@ class FileAnalyzerTask(
             val processed = AtomicInteger(0)
             val total = files.size
 
-            // Kick off one non-blocking read action per file
             val allFutures = files.map { file ->
                 PsiCrawler.getInstance(project)
                     .getFilesAsync(file)
@@ -100,7 +99,11 @@ class FileAnalyzerTask(
     ): AnalysisResult {
         return OpenAIClient
             .getInstance(project)
-            .analyzeFile(file, relatedFiles, inspectionOffset = inspectionOffset)
+            .analyzeFile(
+                file,
+                relatedFiles,
+                inspectionOffset = inspectionOffset
+            )
     }
 
     private fun updateProgress(

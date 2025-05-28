@@ -11,7 +11,6 @@ import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.handler.Reques
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.settings.PluginSettingsState
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.inspection.InspectionService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.MetricService
-import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.psi.PsiCrawler
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger

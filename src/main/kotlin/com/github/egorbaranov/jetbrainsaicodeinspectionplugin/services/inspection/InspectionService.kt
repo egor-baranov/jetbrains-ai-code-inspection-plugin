@@ -32,6 +32,7 @@ class InspectionService(private val project: Project) : PersistentStateComponent
     fun putInspection(inspection: Inspection, files: List<CodeFile>) {
         inspectionsById[inspection.id] = inspection
         inspectionFiles.getOrPut(inspection) { mutableListOf() }
+        inspectionLoaded(inspection)
         addFilesToInspection(inspection, files)
     }
 
@@ -69,9 +70,10 @@ class InspectionService(private val project: Project) : PersistentStateComponent
                 val existing = inspectionFiles[inspection]?.map { it.path }?.toSet().orEmpty()
                 val filtered = it.filter { !existing.contains(it.path) }
 
+                addFiles(inspection, filtered)
+
                 if (inspectionFiles[inspection] == null) {
                     inspectionFiles[inspection] = filtered.toMutableList()
-                    inspectionLoaded(inspection)
                 } else {
                     inspectionFiles[inspection]?.addAll(filtered)
                 }
@@ -140,6 +142,10 @@ class InspectionService(private val project: Project) : PersistentStateComponent
 
     private fun inspectionLoaded(inspection: Inspection) {
         project.messageBus.syncPublisher(INSPECTION_CHANGE_TOPIC).inspectionLoaded(inspection)
+    }
+
+    private fun addFiles(inspection: Inspection, codeFiles: List<CodeFile>) {
+        project.messageBus.syncPublisher(INSPECTION_CHANGE_TOPIC).addFilesToInspection(inspection, codeFiles)
     }
 
     fun cancelInspection() {
@@ -215,13 +221,11 @@ class InspectionService(private val project: Project) : PersistentStateComponent
         }
     }
 
-    // Data classes
     data class Inspection(
         val id: String,
         val description: String,
         val fixPrompt: String
     ) {
-        // Required for XML serialization
         constructor() : this("", "", "")
     }
 
@@ -232,7 +236,6 @@ class InspectionService(private val project: Project) : PersistentStateComponent
         fun virtualFile() = VirtualFileManager.getInstance().findFileByUrl(path)
             ?.takeIf { it.isValid }
 
-        // Required for XML serialization
         constructor() : this("", "")
     }
 
@@ -243,6 +246,8 @@ class InspectionService(private val project: Project) : PersistentStateComponent
         fun inspectionLoaded(inspection: Inspection)
 
         fun inspectionCancelled()
+
+        fun addFilesToInspection(inspection: Inspection, codeFiles: List<CodeFile>)
 
         fun removeInspection(inspection: Inspection)
 
