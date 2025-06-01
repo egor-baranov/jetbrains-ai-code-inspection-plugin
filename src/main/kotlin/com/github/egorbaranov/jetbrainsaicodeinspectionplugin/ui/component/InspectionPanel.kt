@@ -42,6 +42,11 @@ class InspectionPanel(
 ): JBPanel<JBPanel<*>>(BorderLayout()) {
 
     val content = JBPanel<JBPanel<*>>(VerticalLayout(JBUI.scale(4)))
+
+    val codeFilesList = JBPanel<JBPanel<*>>(VerticalLayout(JBUI.scale(4))).also {
+        it.isOpaque = false
+    }
+
     val titleLabel = JBLabel("${item.inspection.description} (${item.affectedFiles.size})").apply {
         font = JBUI.Fonts.label().deriveFont(14f)
         border = JBUI.Borders.emptyLeft(10)
@@ -106,6 +111,7 @@ class InspectionPanel(
             add(textArea)
             add(Box.createVerticalStrut(8))
 
+            add(codeFilesList)
             addFileComponents(item.affectedFiles)
             val buttonPanel = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.RIGHT)).apply {
                 isOpaque = false
@@ -206,22 +212,24 @@ class InspectionPanel(
             }
 
             if (psiFile != null) {
-                content.add(createDetailItem(psiFile, item.inspection, codeFile, content))
+                codeFilesList.add(createDetailItem(psiFile, item.inspection, codeFile, content))
             }
 
-            content.add(Box.createVerticalStrut(JBUI.scale(4)))
+            codeFilesList.add(Box.createVerticalStrut(JBUI.scale(4)))
         }
 
-        content.revalidate()
-        content.repaint()
+        codeFilesList.revalidate()
+        codeFilesList.repaint()
     }
 
     fun addFiles(codeFiles: List<InspectionService.CodeFile>) {
-        val filtered = codeFiles.filter { codeFile -> !item.affectedFiles.map { it.path }.contains(codeFile.path) }
-        println("Add codeFiles: ${filtered.map { it.path }}, already present: ${item.affectedFiles.map { it.path }}")
-        item.affectedFiles.addAll(filtered)
-        titleLabel.text = "${item.inspection.description} (${item.affectedFiles.size})"
-        addFileComponents(filtered)
+        synchronized(item) {
+            val filtered = codeFiles.filter { codeFile -> !item.affectedFiles.map { it.path }.contains(codeFile.path) }
+            println("Add codeFiles: ${filtered.map { it.path }}, already present: ${item.affectedFiles.map { it.path }}")
+            item.affectedFiles.addAll(filtered)
+            titleLabel.text = "${item.inspection.description} (${item.affectedFiles.size})"
+            addFileComponents(filtered)
+        }
     }
 
     private fun createToggleButton(): JLabel {

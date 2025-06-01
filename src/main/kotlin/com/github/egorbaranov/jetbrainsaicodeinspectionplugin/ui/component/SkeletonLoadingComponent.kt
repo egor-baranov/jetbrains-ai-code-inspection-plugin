@@ -3,15 +3,18 @@ package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.component
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
 import java.awt.*
+import java.util.UUID
 import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.Timer
 import kotlin.math.sin
 
-class SkeletonLoadingComponent : JPanel() {
+class SkeletonLoadingComponent(val inspectionId: UUID) : JPanel() {
+
     private val animationTimer: Timer
     private var alpha = 0f
+
 
     init {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
@@ -22,14 +25,16 @@ class SkeletonLoadingComponent : JPanel() {
             JComponent.WIDTH,
             JBUI.scale(44)
         )
-        isOpaque = false
 
+        isOpaque = false
         animationTimer = Timer(5) {
             alpha = (sin(System.currentTimeMillis() / 400.0) * 0.3 + 0.7).toFloat()
             repaint()
         }
+
         animationTimer.start()
     }
+
     override fun paintComponent(g: Graphics) {
         super.paintComponent(g)
         val g2 = g as Graphics2D
@@ -47,16 +52,17 @@ class SkeletonLoadingComponent : JPanel() {
             width * 0.4f, 0f, Color(255, 255, 255, 150),
             true
         )
+
         g2.paint = gradient
         g2.fillRoundRect(0, 0, width, height, arc, arc)
-    }
-
-    fun stopAnimation() {
-        animationTimer.stop()
     }
 
     override fun removeNotify() {
         super.removeNotify()
         stopAnimation()
+    }
+
+    fun stopAnimation() {
+        animationTimer.stop()
     }
 }

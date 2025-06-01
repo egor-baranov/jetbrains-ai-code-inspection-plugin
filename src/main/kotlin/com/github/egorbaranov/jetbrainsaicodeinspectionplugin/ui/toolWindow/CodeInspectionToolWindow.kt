@@ -33,6 +33,7 @@ import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import java.util.UUID
 import javax.swing.*
 import kotlin.math.max
 
@@ -88,8 +89,8 @@ class CodeInspectionToolWindow(
             InspectionService.INSPECTION_CHANGE_TOPIC,
             object : InspectionService.InspectionChangeListener {
 
-                override fun inspectionLoading(inspection: InspectionService.Inspection) {
-                    contentPanel.add(SkeletonLoadingComponent())
+                override fun inspectionLoading(inspectionId: UUID) {
+                    contentPanel.add(SkeletonLoadingComponent(inspectionId))
                 }
 
                 override fun addFilesToInspection(
@@ -310,11 +311,11 @@ class CodeInspectionToolWindow(
                 )
             }
 
-            repeat(
-                loadingInspections
-            ) {
-                contentPanel.add(SkeletonLoadingComponent())
-            }
+//            repeat(
+//                loadingInspections
+//            ) {
+//                contentPanel.add(SkeletonLoadingComponent())
+//            }
         } catch (e: Throwable) {
             MetricService.getInstance(project).error(e)
             thisLogger().warn("Failed to update content", e)

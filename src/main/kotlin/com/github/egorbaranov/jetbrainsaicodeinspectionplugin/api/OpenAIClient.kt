@@ -16,6 +16,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiFile
+import java.util.UUID
 import javax.xml.bind.ValidationException
 
 @Service(Service.Level.PROJECT)
@@ -28,6 +29,8 @@ class OpenAIClient(
         relatedFiles: List<PsiFile>,
         inspectionOffset: Int
     ): AnalysisResult {
+        val inspectionId = UUID.randomUUID()
+        InspectionService.getInstance(project).inspectionLoading(inspectionId)
         val result = try {
             var toolCall: AnalysisResult? = null
 
@@ -46,7 +49,7 @@ class OpenAIClient(
                 val tools = ToolsProvider.createTools(inspections.size < inspectionOffset)
                 val response = RestApiClient.getInstance(project).executeRequest(messages, tools)
 
-                toolCall = processToolCalls(response, files, inspectionOffset)
+                toolCall = processToolCalls(inspectionId, response, files, inspectionOffset)
                 if (toolCall.actions.all { it !is Action.RequestContext }) {
                     break
                 }
@@ -171,6 +174,7 @@ class OpenAIClient(
     }
 
     fun processToolCalls(
+        inspectionId: UUID,
         response: OpenAIResponse,
         files: List<InspectionService.CodeFile>,
         inspectionOffset: Int
@@ -180,12 +184,14 @@ class OpenAIClient(
                 try {
                     when (toolCall.function.name) {
                         "add_inspection" -> AddInspectionHandler(project).handleAddInspection(
+                            inspectionId = inspectionId,
                             toolCall.function.arguments,
                             files,
                             inspectionOffset
                         )
 
                         "apply_inspection" -> ApplyInspectionHandler(project).handleApplyInspection(
+                            inspectionId = inspectionId,
                             toolCall.function.arguments,
                             files
                         )

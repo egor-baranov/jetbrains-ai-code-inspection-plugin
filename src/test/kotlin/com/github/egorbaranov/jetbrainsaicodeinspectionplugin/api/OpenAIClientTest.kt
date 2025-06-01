@@ -14,6 +14,7 @@ import com.jetbrains.rd.util.ConcurrentHashMap
 import io.mockk.*
 import io.mockk.junit5.MockKExtension
 import org.junit.jupiter.api.extension.ExtendWith
+import java.util.UUID
 import javax.xml.bind.ValidationException
 
 @ExtendWith(MockKExtension::class)
@@ -64,7 +65,7 @@ class OpenAIClientTest : BasePlatformTestCase() {
         )
         every { mockRestApiClient.executeRequest(any(), any()) } returns response
 
-        val result = openAIClient.analyzeFile(mockPsiFile, 3)
+        val result = openAIClient.analyzeFile(mockPsiFile, emptyList(), 3)
 
         assertTrue(result.actions.isEmpty())
         assertEquals("test", result.content)
@@ -73,7 +74,7 @@ class OpenAIClientTest : BasePlatformTestCase() {
     fun `testAnalyzeFile should handle exceptions gracefully`() {
         every { mockRestApiClient.executeRequest(any(), any()) } throws RuntimeException("API error")
 
-        val result = openAIClient.analyzeFile(mockPsiFile, 3)
+        val result = openAIClient.analyzeFile(mockPsiFile, emptyList(), 3)
 
         assertNotNull(result.error)
         assertTrue(result.error!!.contains("API error"))
@@ -160,7 +161,7 @@ class OpenAIClientTest : BasePlatformTestCase() {
 
         every { mockInspectionService.getInspectionById("123") } returns mockk()
 
-        val result = openAIClient.processToolCalls(response, emptyList(), 3)
+        val result = openAIClient.processToolCalls(UUID.randomUUID(), response, emptyList(), 3)
 
         assertEquals(4, result.actions.size)
         assertTrue(result.actions[0] is Action.AddInspection)

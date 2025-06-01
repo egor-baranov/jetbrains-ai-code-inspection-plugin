@@ -14,6 +14,7 @@ class AddInspectionHandler(
     private val gson = Gson()
 
     fun handleAddInspection(
+        inspectionId: UUID,
         arguments: String,
         files: List<InspectionService.CodeFile>,
         inspectionOffset: Int
@@ -25,7 +26,7 @@ class AddInspectionHandler(
 
         val args = gson.fromJson(arguments, AddInspectionArgs::class.java)
         val inspection = InspectionService.Inspection(
-            id = UUID.randomUUID().toString(),
+            id = inspectionId.toString(),
             description = args.description,
             fixPrompt = args.fixPrompt
         )

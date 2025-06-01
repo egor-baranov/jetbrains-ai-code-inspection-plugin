@@ -15,6 +15,7 @@ import com.intellij.util.messages.Topic
 import org.jdom.Element
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import javax.swing.SwingUtilities
 
@@ -136,8 +137,8 @@ class InspectionService(private val project: Project) : PersistentStateComponent
         return task
     }
 
-    private fun inspectionLoading(inspection: Inspection) {
-        project.messageBus.syncPublisher(INSPECTION_CHANGE_TOPIC).inspectionLoading(inspection)
+    fun inspectionLoading(inspectionId: UUID) {
+        project.messageBus.syncPublisher(INSPECTION_CHANGE_TOPIC).inspectionLoading(inspectionId)
     }
 
     private fun inspectionLoaded(inspection: Inspection) {
@@ -241,7 +242,7 @@ class InspectionService(private val project: Project) : PersistentStateComponent
 
     interface InspectionChangeListener {
 
-        fun inspectionLoading(inspection: Inspection)
+        fun inspectionLoading(inspectionId: UUID)
 
         fun inspectionLoaded(inspection: Inspection)
 

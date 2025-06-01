@@ -4,6 +4,7 @@ import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.OpenAIClient
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.entity.AnalysisResult
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics.MetricService
 import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.psi.PsiCrawler
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressIndicator
@@ -86,10 +87,11 @@ class FileAnalyzerTask(
     }
 
     private fun getOpenedFiles(project: Project): List<PsiFile> {
-        val psiManager = PsiManager.getInstance(project)
-        return FileEditorManager.getInstance(project)
-            .openFiles
-            .mapNotNull { vf -> psiManager.findFile(vf) }
+        val openVFiles = FileEditorManager.getInstance(project).openFiles.toList()
+        return ReadAction.compute<List<PsiFile>, Throwable> {
+            val psiManager = PsiManager.getInstance(project)
+            openVFiles.mapNotNull { vf -> psiManager.findFile(vf) }
+        }
     }
 
     private fun processFile(

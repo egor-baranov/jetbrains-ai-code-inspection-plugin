@@ -4,6 +4,7 @@ import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.api.OpenAIClient
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.mockk.*
 import org.jdom.Element
+import java.util.UUID
 
 class InspectionServiceTest : BasePlatformTestCase() {
 
@@ -192,9 +193,13 @@ class InspectionServiceTest : BasePlatformTestCase() {
 
     fun testCancelInspection() {
         val listener = spyk(object : InspectionService.InspectionChangeListener {
-            override fun inspectionLoading(inspection: InspectionService.Inspection) {}
+            override fun inspectionLoading(inspectionId: UUID) {}
             override fun inspectionLoaded(inspection: InspectionService.Inspection) {}
-            override fun inspectionCancelled() { /* marker callback */ }
+            override fun inspectionCancelled() {}
+            override fun addFilesToInspection(
+                inspection: InspectionService.Inspection,
+                codeFiles: List<InspectionService.CodeFile>
+            ) {}
             override fun removeInspection(inspection: InspectionService.Inspection) {}
             override fun removeFileFromInspection(
                 inspection: InspectionService.Inspection,

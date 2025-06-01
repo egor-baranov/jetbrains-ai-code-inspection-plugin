@@ -70,8 +70,7 @@ class PsiCrawlerTest : BasePlatformTestCase() {
             rootUrl to setOf(child1Url, child2Url)
         )
 
-        val fakeService = createFakeService(fileMapping, urlRelations)
-        val psiCrawler = PsiCrawler(mockProject, fakeService)
+        val psiCrawler = PsiCrawler(mockProject)
 
         val result = psiCrawler.getFiles(rootFile, offset = 2)
         assertEquals(2, result.size)
