@@ -21,7 +21,6 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
-import com.intellij.tasks.TaskManager
 import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.panels.VerticalLayout
@@ -33,9 +32,8 @@ import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
-import java.util.UUID
+import java.util.*
 import javax.swing.*
-import kotlin.math.max
 
 class CodeInspectionToolWindow(
     private val toolWindow: ToolWindow
@@ -52,7 +50,6 @@ class CodeInspectionToolWindow(
         it.selectedIndex = 1
     }
 
-    private var loadingInspections = 0
 
     init {
         rootPanel = createScrollableContent()
@@ -90,6 +87,7 @@ class CodeInspectionToolWindow(
             object : InspectionService.InspectionChangeListener {
 
                 override fun inspectionLoading(inspectionId: UUID) {
+                    println("Inspection loading: $inspectionId")
                     contentPanel.add(SkeletonLoadingComponent(inspectionId))
                 }
 
@@ -97,6 +95,7 @@ class CodeInspectionToolWindow(
                     inspection: InspectionService.Inspection,
                     codeFiles: List<InspectionService.CodeFile>
                 ) {
+                    println("Add files to inspection: ${inspection.id}, ${codeFiles.size}")
                     ApplicationManager.getApplication().invokeAndWait {
                         val inspectionPanel: InspectionPanel? = contentPanel.components.mapNotNull {
                             it as? InspectionPanel
@@ -108,27 +107,36 @@ class CodeInspectionToolWindow(
                     }
                 }
 
-                override fun inspectionCancelled() {
-                    loadingInspections = max(loadingInspections - 1, 0)
+                override fun inspectionCancelled(inspectionId: UUID) {
+                    println("Inspection cancelled: $inspectionId")
                     ApplicationManager.getApplication().invokeAndWait {
-                        val componentToRemove = contentPanel.components.firstOrNull {
-                            it is SkeletonLoadingComponent
-                        } ?: return@invokeAndWait
-                        contentPanel.remove(componentToRemove)
+                        contentPanel.components.mapNotNull {
+                            it as? SkeletonLoadingComponent
+                        }.firstOrNull {
+                            it.inspectionId == inspectionId
+                        }?.let {
+                            contentPanel.remove(it)
+                        }
                     }
                 }
 
                 override fun inspectionLoaded(inspection: InspectionService.Inspection) {
-                    loadingInspections = max(loadingInspections - 1, 0)
+                    println("inspection loaded: $inspection")
                     ApplicationManager.getApplication().invokeAndWait {
-                        val componentToRemove = contentPanel.components.firstOrNull {
-                            it is SkeletonLoadingComponent
-                        } ?: return@invokeAndWait
+                        contentPanel.components.mapNotNull {
+                            it as? SkeletonLoadingComponent
+                        }.firstOrNull {
+                            it.inspectionId.toString() == inspection.id
+                        }?.let {
+                            contentPanel.remove(it)
+                        }
 
-                        contentPanel.remove(componentToRemove)
                         try {
-                            val codeFiles = InspectionService.getInstance(project).inspectionFiles[inspection]
-                                ?: return@invokeAndWait
+                            val codeFiles = InspectionService.getInstance(project)
+                                .inspectionFiles[inspection]
+                                .orEmpty()
+                                .toMutableList()
+
                             contentPanel.add(
                                 createCollapsiblePanel(
                                     InspectionPanel.InspectionItem(
@@ -166,17 +174,17 @@ class CodeInspectionToolWindow(
     }
 
     private fun analyzeFilesWithProgress(project: Project, inspectionOffset: Int, onComplete: Runnable) {
-        ProgressManager.getInstance().run(
-            FileAnalyzerTask(
-                project,
-                inspectionOffset = inspectionOffset,
-                onProgressUpdate = { },
-                onComplete = {
-                    onComplete.run()
-                },
-                onError = { }
-            )
+        val task = FileAnalyzerTask(
+            project,
+            inspectionOffset = inspectionOffset,
+            onProgressUpdate = { },
+            onComplete = {
+                onComplete.run()
+            },
+            onError = { }
         )
+
+        ProgressManager.getInstance().run(task)
     }
 
     private fun buildToolbar(): JPanel {
@@ -189,7 +197,6 @@ class CodeInspectionToolWindow(
                 object : MouseAdapter() {
                     override fun mouseClicked(e: MouseEvent?) {
                         MetricService.getInstance(project).collect(Metric.MetricID.EXECUTE)
-                        loadingInspections = comboBox.item
                         analyzeFilesWithProgress(project, comboBox.item) {
                             updateContent()
                         }
@@ -207,9 +214,7 @@ class CodeInspectionToolWindow(
                 object : MouseAdapter() {
                     override fun mouseClicked(e: MouseEvent?) {
                         MetricService.getInstance(project).collect(Metric.MetricID.INTERRUPT)
-                        TaskManager.getManager(project).localTasks.forEach { task ->
-                            TaskManager.getManager(project).removeTask(task)
-                        }
+                        InspectionService.getInstance(project).cancelAllTasks()
                     }
                 }
             )
@@ -305,17 +310,11 @@ class CodeInspectionToolWindow(
                     createCollapsiblePanel(
                         InspectionPanel.InspectionItem(
                             inspection = inspection,
-                            affectedFiles = affectedFiles
+                            affectedFiles = affectedFiles.toMutableList()
                         )
                     )
                 )
             }
-
-//            repeat(
-//                loadingInspections
-//            ) {
-//                contentPanel.add(SkeletonLoadingComponent())
-//            }
         } catch (e: Throwable) {
             MetricService.getInstance(project).error(e)
             thisLogger().warn("Failed to update content", e)

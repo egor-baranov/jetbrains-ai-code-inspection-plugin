@@ -33,8 +33,6 @@ class OpenAIClient(
         InspectionService.getInstance(project).inspectionLoading(inspectionId)
         val result = try {
             var toolCall: AnalysisResult? = null
-
-            // TODO: add proper caching
             for (step in 1..PluginSettingsState.getInstance().indexingSteps) {
                 val files = (listOf(file) + relatedFiles.take(step * 3)).toSet().map {
                     InspectionService.CodeFile(it.virtualFile.url, it.text)
@@ -46,7 +44,7 @@ class OpenAIClient(
                     inspections
                 )
 
-                val tools = ToolsProvider.createTools(inspections.size < inspectionOffset)
+                val tools = ToolsProvider.createTools()
                 val response = RestApiClient.getInstance(project).executeRequest(messages, tools)
 
                 toolCall = processToolCalls(inspectionId, response, files, inspectionOffset)

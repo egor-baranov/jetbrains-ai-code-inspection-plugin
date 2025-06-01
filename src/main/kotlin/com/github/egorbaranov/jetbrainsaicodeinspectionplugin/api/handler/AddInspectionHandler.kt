@@ -20,7 +20,7 @@ class AddInspectionHandler(
         inspectionOffset: Int
     ): Action? {
         if (InspectionService.getInstance(project).inspectionFiles.size >= inspectionOffset) {
-            InspectionService.getInstance(project).cancelInspection()
+            InspectionService.getInstance(project).cancelInspection(inspectionId)
             return null
         }
 

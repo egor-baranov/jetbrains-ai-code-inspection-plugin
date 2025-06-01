@@ -18,7 +18,7 @@ class ApplyInspectionHandler(private val project: Project) {
     ): Action {
         val args = gson.fromJson(arguments, ApplyInspectionArgs::class.java)
         if (args.inspectionId != inspectionId.toString()) {
-
+            InspectionService.getInstance(project).cancelInspection(inspectionId)
         }
 
         val inspection = InspectionService.getInstance(project).getInspectionById(args.inspectionId)

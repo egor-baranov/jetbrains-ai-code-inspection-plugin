@@ -7,7 +7,7 @@ object ToolsProvider {
 
     private val gson = Gson()
 
-    fun createTools(useAddInspectionTool: Boolean): List<JsonObject> = listOfNotNull(
+    fun createTools(): List<JsonObject> = listOfNotNull(
         createTool(
             name = "add_inspection",
             description = "Create new code inspection representing fix or improvement for all analyzed files",
@@ -22,7 +22,7 @@ object ToolsProvider {
                 })
                 add("required", gson.toJsonTree(listOf("description", "fix_prompt")))
             }
-        ).takeIf { useAddInspectionTool },
+        ),
         createTool(
             name = "apply_inspection",
             description = "Apply existing inspection to current files",

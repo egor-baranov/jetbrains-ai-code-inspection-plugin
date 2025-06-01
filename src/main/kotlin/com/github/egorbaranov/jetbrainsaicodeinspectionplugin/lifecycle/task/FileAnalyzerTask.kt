@@ -38,26 +38,39 @@ class FileAnalyzerTask(
             val processed = AtomicInteger(0)
             val total = files.size
 
-            val allFutures = files.map { file ->
+            val allFutures = files.take(inspectionOffset).map { file ->
+                indicator.checkCanceled()
+
                 PsiCrawler.getInstance(project)
                     .getFilesAsync(file)
-                    .thenAcceptAsync({ relatedFiles ->
-                        if (indicator.isCanceled) throw ProcessCanceledException()
+                    .thenComposeAsync({ relatedFiles ->
+                        if (indicator.isCanceled) {
+                            throw ProcessCanceledException()
+                        }
 
                         val toProcess = relatedFiles.filterNot { it == file }
                         if (toProcess.isEmpty()) {
-                            processed.incrementAndGet()
+                            CompletableFuture.completedFuture(null)
                         } else {
+                            val cf = CompletableFuture<Void>()
+                            val delayMillis = processed.get() * 200L
+
                             AppExecutorUtil.getAppScheduledExecutorService().schedule({
                                 try {
+                                    indicator.checkCanceled()
                                     updateProgress(indicator, file.name, processed.get(), total)
+
                                     processFile(file, toProcess, inspectionOffset)
                                     processed.incrementAndGet()
+                                    cf.complete(null)
+                                } catch (pce: ProcessCanceledException) {
+                                    cf.completeExceptionally(pce)
                                 } catch (e: Exception) {
-                                    MetricService.getInstance(project).error(e)
-                                    handleError(e)
+                                    cf.completeExceptionally(e)
                                 }
-                            },  processed.get() * 200L, TimeUnit.MILLISECONDS)
+                            }, delayMillis, TimeUnit.MILLISECONDS)
+
+                            cf
                         }
                     }, AppExecutorUtil.getAppExecutorService())
             }
@@ -77,8 +90,8 @@ class FileAnalyzerTask(
                 }
                 .join()
 
-        } catch (e: ProcessCanceledException) {
-            MetricService.getInstance(project).error(e)
+        } catch (pce: ProcessCanceledException) {
+            MetricService.getInstance(project).error(pce)
             handleCancellation()
         } catch (e: Exception) {
             MetricService.getInstance(project).error(e)
@@ -118,6 +131,10 @@ class FileAnalyzerTask(
             text = "Analyzing $fileName"
             fraction = processed.toDouble() / total.coerceAtLeast(1)
             text2 = "Processed $processed of $total files"
+        }
+
+        application.invokeLater {
+            onProgressUpdate("Analyzing $fileName ($processed/$total)")
         }
     }
 

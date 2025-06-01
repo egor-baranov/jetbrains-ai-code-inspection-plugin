@@ -25,9 +25,9 @@ import javax.swing.SwingUtilities
 )
 @Service(Service.Level.PROJECT)
 class InspectionService(private val project: Project) : PersistentStateComponent<Element> {
+
     private val inspectionsById = ConcurrentHashMap<String, Inspection>()
     val inspectionFiles = ConcurrentHashMap<Inspection, MutableList<CodeFile>>()
-
     private val tasks = mutableListOf<Task>()
 
     fun putInspection(inspection: Inspection, files: List<CodeFile>) {
@@ -49,6 +49,13 @@ class InspectionService(private val project: Project) : PersistentStateComponent
 
     fun getTasks(): List<Task> = tasks
 
+    fun cancelAllTasks() {
+        synchronized(tasks) {
+            tasks.forEach { it.onCancel() }
+            tasks.clear()
+        }
+    }
+
     fun setInspectionDescription(id: String, description: String) {
         val inspection = inspectionsById[id] ?: return
         val newInspection = inspection.copy(description = description)
@@ -63,24 +70,41 @@ class InspectionService(private val project: Project) : PersistentStateComponent
         inspection: Inspection,
         files: List<CodeFile>
     ) {
-        val existingFiles = inspectionFiles[inspection]?.map { it.path }?.toSet().orEmpty()
-        val filteredFiles = files.filter { !existingFiles.contains(it.path) }.toSet().toList()
+        val pathToRequest: List<CodeFile> = synchronized(inspectionFiles) {
+            val alreadyPresentPaths = inspectionFiles[inspection]
+                ?.map { it.path }
+                ?.toSet()
+                .orEmpty()
 
-        performFixWithProgress(inspection, filteredFiles) {
-            synchronized(inspectionFiles) {
-                val existing = inspectionFiles[inspection]?.map { it.path }?.toSet().orEmpty()
-                val filtered = it.filter { !existing.contains(it.path) }
+            files.filter { !alreadyPresentPaths.contains(it.path) }
+        }
 
-                addFiles(inspection, filtered)
+        if (pathToRequest.isEmpty()) {
+            return
+        }
 
-                if (inspectionFiles[inspection] == null) {
-                    inspectionFiles[inspection] = filtered.toMutableList()
-                } else {
-                    inspectionFiles[inspection]?.addAll(filtered)
+        performFixWithProgress(inspection, pathToRequest) { fixedList ->
+            val reallyNew: List<CodeFile> = synchronized(inspectionFiles) {
+                val alreadyPaths2 = inspectionFiles[inspection]
+                    ?.map { it.path }
+                    ?.toSet()
+                    .orEmpty()
+
+                val notAlready = fixedList.filter { !alreadyPaths2.contains(it.path) }
+                if (notAlready.isNotEmpty()) {
+                    inspectionFiles.getOrPut(inspection) { mutableListOf() }
+                        .addAll(notAlready)
                 }
+
+                notAlready
+            }
+
+            if (reallyNew.isNotEmpty()) {
+                addFiles(inspection, reallyNew)
             }
         }
     }
+
 
     fun performFixWithProgress(
         inspection: Inspection,
@@ -96,16 +120,29 @@ class InspectionService(private val project: Project) : PersistentStateComponent
             override fun run(indicator: ProgressIndicator) {
                 try {
                     indicator.isIndeterminate = false
-                    indicator.text = "Processing ${codeFiles.size} files..."
+                    val total = codeFiles.size
+                    for ((index, file) in codeFiles.withIndex()) {
+                        indicator.checkCanceled()
 
-                    fixedFiles.addAll(OpenAIClient.getInstance(project).performFix(inspection, codeFiles))
-                    indicator.checkCanceled()  // Throw exception if canceled
+                        indicator.fraction = index / total.toDouble()
+                        indicator.text = "Processing file ${index + 1} of $total: ${file.path}"
 
+                        val singleFileResult = OpenAIClient
+                            .getInstance(project)
+                            .performFix(inspection, listOf(file))
+
+                        fixedFiles.addAll(singleFileResult)
+                    }
+
+                    indicator.checkCanceled()
                     thisLogger().info("Added ${fixedFiles.size} fixed files to inspection ${inspection.id}")
-                } catch (e: ProcessCanceledException) {
+                }
+                catch (e: ProcessCanceledException) {
                     MetricService.getInstance(project).error(e)
-                    thisLogger().warn("Processing canceled for inspection ${inspection.id}")
-                } catch (e: Exception) {
+                    thisLogger().warn("Processing cancelled for inspection ${inspection.id}")
+                    throw e
+                }
+                catch (e: Exception) {
                     MetricService.getInstance(project).error(e)
                     thisLogger().warn("Failed to process files for inspection ${inspection.id}", e)
                     SwingUtilities.invokeLater {
@@ -114,10 +151,10 @@ class InspectionService(private val project: Project) : PersistentStateComponent
                             "Inspection Error"
                         )
                     }
-                } finally {
-                    onPerformed?.let {
-                        it(fixedFiles)
-                    }
+                }
+
+                finally {
+                    onPerformed?.invoke(fixedFiles)
                 }
             }
 
@@ -137,6 +174,7 @@ class InspectionService(private val project: Project) : PersistentStateComponent
         return task
     }
 
+
     fun inspectionLoading(inspectionId: UUID) {
         project.messageBus.syncPublisher(INSPECTION_CHANGE_TOPIC).inspectionLoading(inspectionId)
     }
@@ -149,8 +187,8 @@ class InspectionService(private val project: Project) : PersistentStateComponent
         project.messageBus.syncPublisher(INSPECTION_CHANGE_TOPIC).addFilesToInspection(inspection, codeFiles)
     }
 
-    fun cancelInspection() {
-        project.messageBus.syncPublisher(INSPECTION_CHANGE_TOPIC).inspectionCancelled()
+    fun cancelInspection(inspectionId: UUID) {
+        project.messageBus.syncPublisher(INSPECTION_CHANGE_TOPIC).inspectionCancelled(inspectionId)
     }
 
     fun removeInspection(inspection: Inspection) {
@@ -164,7 +202,6 @@ class InspectionService(private val project: Project) : PersistentStateComponent
         project.messageBus.syncPublisher(INSPECTION_CHANGE_TOPIC).removeFileFromInspection(inspection, codeFile)
     }
 
-    // Persistent state handling
     override fun getState(): Element {
         return Element("inspections").apply {
             inspectionsById.values.forEach { inspection ->
@@ -246,7 +283,7 @@ class InspectionService(private val project: Project) : PersistentStateComponent
 
         fun inspectionLoaded(inspection: Inspection)
 
-        fun inspectionCancelled()
+        fun inspectionCancelled(inspectionId: UUID)
 
         fun addFilesToInspection(inspection: Inspection, codeFiles: List<CodeFile>)
 
