@@ -87,7 +87,6 @@ class CodeInspectionToolWindow(
             object : InspectionService.InspectionChangeListener {
 
                 override fun inspectionLoading(inspectionId: UUID) {
-                    println("Inspection loading: $inspectionId")
                     contentPanel.add(SkeletonLoadingComponent(inspectionId))
                 }
 
@@ -95,7 +94,6 @@ class CodeInspectionToolWindow(
                     inspection: InspectionService.Inspection,
                     codeFiles: List<InspectionService.CodeFile>
                 ) {
-                    println("Add files to inspection: ${inspection.id}, ${codeFiles.size}")
                     ApplicationManager.getApplication().invokeAndWait {
                         val inspectionPanel: InspectionPanel? = contentPanel.components.mapNotNull {
                             it as? InspectionPanel
@@ -108,7 +106,6 @@ class CodeInspectionToolWindow(
                 }
 
                 override fun inspectionCancelled(inspectionId: UUID) {
-                    println("Inspection cancelled: $inspectionId")
                     ApplicationManager.getApplication().invokeAndWait {
                         contentPanel.components.mapNotNull {
                             it as? SkeletonLoadingComponent
@@ -121,7 +118,6 @@ class CodeInspectionToolWindow(
                 }
 
                 override fun inspectionLoaded(inspection: InspectionService.Inspection) {
-                    println("inspection loaded: $inspection")
                     ApplicationManager.getApplication().invokeAndWait {
                         contentPanel.components.mapNotNull {
                             it as? SkeletonLoadingComponent

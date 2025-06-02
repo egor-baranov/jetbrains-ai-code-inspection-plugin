@@ -16,7 +16,6 @@ class PluginSettingsState : PersistentStateComponent<PluginSettingsState> {
 
     var retryQuantity: Int = 0
     var indexingSteps: Int = 1
-    var richIndexingContext: Boolean = true
 
     override fun getState(): PluginSettingsState = this
 

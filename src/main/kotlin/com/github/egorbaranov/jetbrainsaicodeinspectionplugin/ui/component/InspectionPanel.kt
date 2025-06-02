@@ -53,9 +53,6 @@ class InspectionPanel(
     }
 
     init {
-        println("init inspection with files: ${item.affectedFiles.size}")
-
-        val collapsiblePanel = this
         isOpaque = false
 
         border = BorderFactory.createCompoundBorder(
@@ -73,9 +70,13 @@ class InspectionPanel(
 
             addMouseListener(object : MouseAdapter() {
                 override fun mouseClicked(e: MouseEvent?) {
-                    MetricService.getInstance(project).collect(Metric.MetricID.DELETE_INSPECTION)
-                    InspectionService.getInstance(project).removeInspection(item.inspection)
-                    codeFilesList.remove(collapsiblePanel)
+                    MetricService.getInstance(project)
+                        .collect(Metric.MetricID.DELETE_INSPECTION)
+
+                    InspectionService.getInstance(project)
+                        .removeInspection(item.inspection)
+
+                    contentPanel.remove(this@InspectionPanel)
                     contentPanel.revalidate()
                     contentPanel.repaint()
                 }
@@ -161,7 +162,7 @@ class InspectionPanel(
                                             document?.setText(content)
                                         }
                                         InspectionService.getInstance(project).removeInspection(item.inspection)
-                                        contentPanel.remove(collapsiblePanel)
+                                        contentPanel.remove(this@InspectionPanel)
                                     }
                                 }
                             }
@@ -174,7 +175,7 @@ class InspectionPanel(
                     addActionListener {
                         MetricService.getInstance(project).collect(Metric.MetricID.IGNORE_FIX)
                         InspectionService.getInstance(project).removeInspection(inspection = item.inspection)
-                        contentPanel.remove(collapsiblePanel)
+                        contentPanel.remove(this@InspectionPanel)
                     }
                 }
 
@@ -214,7 +215,14 @@ class InspectionPanel(
             }
 
             if (psiFile != null) {
-                codeFilesList.add(createDetailItem(psiFile, item.inspection, codeFile, content))
+                codeFilesList.add(
+                    createDetailItem(
+                        psiFile,
+                        item.inspection,
+                        codeFile,
+                        codeFilesList
+                    )
+                )
             }
 
             codeFilesList.add(Box.createVerticalStrut(JBUI.scale(4)))
@@ -223,7 +231,6 @@ class InspectionPanel(
 
     fun addFiles(codeFiles: List<InspectionService.CodeFile>) {
         val filtered = codeFiles.filter { codeFile -> !item.affectedFiles.map { it.path }.contains(codeFile.path) }
-        println("Add codeFiles: ${filtered.map { it.path }}, already present: ${item.affectedFiles.map { it.path }}")
         item.affectedFiles.addAll(filtered)
         titleLabel.text = "${item.inspection.description} (${item.affectedFiles.size})"
         addFileComponents(filtered)
@@ -370,7 +377,7 @@ class InspectionPanel(
                     addMouseListener(object : MouseAdapter() {
                         override fun mouseClicked(e: MouseEvent?) {
                             MetricService.getInstance(project).collect(Metric.MetricID.EXPAND)
-                            diffPanelComponent?.isVisible = !(diffPanelComponent?.isVisible ?: false)
+                            diffPanelComponent?.isVisible = !diffPanelComponent.isVisible
                             button.icon = getToggleIcon(diffPanelComponent?.isVisible ?: false)
                             revalidate()
                             repaint()

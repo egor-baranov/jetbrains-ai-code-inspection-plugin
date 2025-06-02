@@ -26,6 +26,7 @@ import javax.swing.*
 import javax.swing.table.AbstractTableModel
 import javax.swing.table.DefaultTableCellRenderer
 import javax.swing.table.TableModel
+import kotlin.math.abs
 import kotlin.math.sqrt
 
 class PluginConfigurable : SearchableConfigurable {
@@ -80,7 +81,7 @@ class PluginConfigurable : SearchableConfigurable {
                         it.id == Metric.MetricID.ERROR
                     } * 3) /
                     metrics.size
-        }?.let { sqrt(it) } ?: 1f
+        }?.let { abs(sqrt(it)) } ?: 1f
 
         mySettingsComponent = panel {
             this.group("Usage Statistics") {
@@ -213,10 +214,6 @@ class PluginConfigurable : SearchableConfigurable {
                             it.add(Box.createVerticalStrut(4))
                         }
                     )
-                }
-
-                row("Indexing with rich context") {
-                    checkBox("")
                 }
 
                 row("Retry quantity") {

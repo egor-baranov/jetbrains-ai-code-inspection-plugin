@@ -1,6 +1,5 @@
 package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.psi
 
-import com.github.egorbaranov.jetbrainsaicodeinspectionplugin.lifecycle.settings.PluginSettingsState
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
@@ -45,15 +44,7 @@ class PsiCrawler(
                     }
 
                     if (element is PsiNamedElement) {
-                        val scope = if (PluginSettingsState.getInstance().richIndexingContext) {
-                            GlobalSearchScope.allScope(project)
-                        } else {
-                            GlobalSearchScope.filesScope(
-                                project,
-                                FileEditorManager.getInstance(project).openFiles.toList()
-                            )
-                        }
-
+                        val scope = GlobalSearchScope.allScope(project)
                         ReferencesSearch.search(element, scope, false)
                             .findAll()
                             .mapNotNull { it.element.containingFile }
@@ -91,8 +82,7 @@ class PsiCrawler(
     private fun isInProject(vf: VirtualFile?, fileIndex: ProjectFileIndex): Boolean =
         vf != null
                 && fileIndex.isInContent(vf)
-                && (PluginSettingsState.getInstance().richIndexingContext
-                || FileEditorManager.getInstance(project).openFiles.contains(vf))
+                && FileEditorManager.getInstance(project).openFiles.contains(vf)
 
     companion object {
         fun getInstance(project: Project): PsiCrawler = project.service()

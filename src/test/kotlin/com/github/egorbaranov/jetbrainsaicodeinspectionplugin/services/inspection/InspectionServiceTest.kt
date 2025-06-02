@@ -100,8 +100,6 @@ class InspectionServiceTest : BasePlatformTestCase() {
         every { OpenAIClient.getInstance(project).performFix(inspection, listOf(file)) } returns fixedFiles
 
         var onPerformedCallbackFiles: List<InspectionService.CodeFile>? = null
-        inspectionService.addFilesToInspection(inspection, listOf(file))
-
         inspectionService.performFixWithProgress(inspection, listOf(file)) {
             onPerformedCallbackFiles = it
         }
@@ -139,7 +137,8 @@ class InspectionServiceTest : BasePlatformTestCase() {
         assertNotNull("Loaded inspection should not be null", loadedInspection)
         assertEquals("Loaded inspection description", "State Test", loadedInspection?.description)
         val affectedFiles = inspectionService.getAffectedFiles()
-        assertTrue("State loaded should include the file",
+        assertTrue(
+            "State loaded should include the file",
             affectedFiles.any { it.path == file.path && it.content == file.content }
         )
     }
@@ -191,11 +190,11 @@ class InspectionServiceTest : BasePlatformTestCase() {
         assertTrue("File2 should remain", affectedFiles.any { it.path == file2.path })
     }
 
-    fun testCancelInspection() {
+    fun `test cancel inspection publishes event`() {
         val listener = spyk(object : InspectionService.InspectionChangeListener {
             override fun inspectionLoading(inspectionId: UUID) {}
             override fun inspectionLoaded(inspection: InspectionService.Inspection) {}
-            override fun inspectionCancelled() {}
+            override fun inspectionCancelled(inspectionId: UUID) {}
             override fun addFilesToInspection(
                 inspection: InspectionService.Inspection,
                 codeFiles: List<InspectionService.CodeFile>
@@ -210,9 +209,10 @@ class InspectionServiceTest : BasePlatformTestCase() {
         project.messageBus.connect(testRootDisposable)
             .subscribe(InspectionService.INSPECTION_CHANGE_TOPIC, listener)
 
-        inspectionService.cancelInspection()
+        val randomId = UUID.randomUUID()
+        inspectionService.cancelInspection(randomId)
         waitForBackgroundTasks()
 
-        verify { listener.inspectionCancelled() }
+        verify { listener.inspectionCancelled(randomId) }
     }
 }

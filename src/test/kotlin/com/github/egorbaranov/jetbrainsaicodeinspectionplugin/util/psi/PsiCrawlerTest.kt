@@ -1,194 +1,178 @@
 package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.psi
 
-import com.intellij.mock.MockProject
-import com.intellij.openapi.project.Project
+import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
+import com.intellij.psi.PsiReference
+import com.intellij.psi.search.searches.ReferencesSearch
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.intellij.util.Processor
+import com.intellij.util.Query
 import io.mockk.every
-import io.mockk.junit5.MockKExtension
 import io.mockk.mockk
-import org.junit.jupiter.api.extension.ExtendWith
+import io.mockk.mockkStatic
+import java.util.concurrent.TimeUnit
 
-@ExtendWith(MockKExtension::class)
 class PsiCrawlerTest : BasePlatformTestCase() {
 
-    private val mockProject: Project = MockProject(null) { }
-
-    fun `test get files with default offset`() {
-        val rootFile = myFixture.addFileToProject("root.txt", "root content")
-        val child1 = myFixture.addFileToProject("child1.txt", "child1 content")
-        val child2 = myFixture.addFileToProject("child2.txt", "child2 content")
-        val child3 = myFixture.addFileToProject("child3.txt", "child3 content")
-        val child4 = myFixture.addFileToProject("child4.txt", "child4 content")
-
-        val rootUrl = rootFile.virtualFile.url
-        val child1Url = child1.virtualFile.url
-        val child2Url = child2.virtualFile.url
-        val child3Url = child3.virtualFile.url
-        val child4Url = child4.virtualFile.url
-
-        val fileMapping = mapOf(
-            rootUrl to rootFile,
-            child1Url to child1,
-            child2Url to child2,
-            child3Url to child3,
-            child4Url to child4
-        )
-
-        val urlRelations = mapOf(
-            rootUrl to setOf(child1Url, child2Url, child3Url),
-            child1Url to setOf(child4Url)
-        )
-
-        val fakeService = createFakeService(fileMapping, urlRelations)
-        val psiCrawler = PsiCrawler(mockProject, fakeService)
-
-        val result = psiCrawler.getFiles(rootFile)
-        assertEquals(3, result.size)
-
-        val expectedUrls = setOf(rootUrl, child1Url, child2Url)
-        val resultUrls = result.map { it.virtualFile.url }.toSet()
-        assertEquals(expectedUrls, resultUrls)
+    /**
+     * Open the given PsiFile in the editor so that FileEditorManager.getInstance(project).openFiles contains it.
+     */
+    private fun openInEditor(psiFile: PsiFile) {
+        FileEditorManager.getInstance(project).openFile(psiFile.virtualFile, false)
     }
 
-    fun `test get files with custom offset`() {
-        val rootFile = myFixture.addFileToProject("root_custom.txt", "root custom content")
-        val child1 = myFixture.addFileToProject("child1_custom.txt", "child1 custom content")
-        val child2 = myFixture.addFileToProject("child2_custom.txt", "child2 custom content")
-
-        val rootUrl = rootFile.virtualFile.url
-        val child1Url = child1.virtualFile.url
-        val child2Url = child2.virtualFile.url
-
-        val fileMapping = mapOf(
-            rootUrl to rootFile,
-            child1Url to child1,
-            child2Url to child2
-        )
-
-        val urlRelations = mapOf(
-            rootUrl to setOf(child1Url, child2Url)
-        )
-
-        val psiCrawler = PsiCrawler(mockProject)
-
-        val result = psiCrawler.getFiles(rootFile, offset = 2)
-        assertEquals(2, result.size)
-
-        val expectedUrls = setOf(rootUrl, child1Url)
-        val resultUrls = result.map { it.virtualFile.url }.toSet()
-        assertEquals(expectedUrls, resultUrls)
+    override fun setUp() {
+        super.setUp()
+        mockkStatic(ReferencesSearch::class)
     }
 
-    fun `test get files with max offset`() {
-        val rootFile = myFixture.addFileToProject("root_max.txt", "root max content")
-        val child1 = myFixture.addFileToProject("child1_max.txt", "child1 max content")
-
-        val rootUrl = rootFile.virtualFile.url
-        val child1Url = child1.virtualFile.url
-
-        val fileMapping = mapOf(
-            rootUrl to rootFile,
-            child1Url to child1
+    fun `test getFilesAsync returns related file via ReferencesSearch`() {
+        val fileB = myFixture.addFileToProject(
+            "src/p/B.java",
+            """
+            package p;
+            public class B { }
+            """.trimIndent()
+        )
+        val fileA = myFixture.addFileToProject(
+            "src/p/A.java",
+            """
+            package p;
+            public class A { }
+            """.trimIndent()
         )
 
-        val urlRelations = mapOf(
-            rootUrl to setOf(child1Url)
-        )
+        openInEditor(fileA as PsiFile)
+        openInEditor(fileB as PsiFile)
 
-        val fakeService = createFakeService(fileMapping, urlRelations)
-        val psiCrawler = PsiCrawler(mockProject, fakeService)
+        val fakeReference = mockk<PsiReference>(relaxed = true)
+        every { fakeReference.resolve() } returns fileB
+        every { fakeReference.element } returns fileB  // element.containingFile will be fileB
 
-        val result = psiCrawler.getFiles(rootFile, offset = 5)
-        assertEquals(2, result.size)
+        every {
+            ReferencesSearch.search(any<PsiElement>(), any(), any())
+        } returns object : Query<PsiReference> {
+            override fun findFirst(): PsiReference? = fakeReference
+            override fun findAll(): MutableCollection<PsiReference> = mutableListOf(fakeReference)
+            override fun forEach(consumer: Processor<in PsiReference>): Boolean =
+                findAll().all { consumer.process(it) }
+        }
 
-        val expectedUrls = setOf(rootUrl, child1Url)
-        val resultUrls = result.map { it.virtualFile.url }.toSet()
-        assertEquals(expectedUrls, resultUrls)
+        val crawler = PsiCrawler.getInstance(project)
+        val future = crawler.getFilesAsync(fileA)
+        val related = future.get(5, TimeUnit.SECONDS)
+
+        assertEquals(1, related.size)
+        assertEquals(fileB.virtualFile.url, related.first().virtualFile.url)
     }
 
-    // New tests
-
-    fun `test cycle prevention`() {
-        val rootFile = myFixture.addFileToProject("root_cycle.txt", "cycle content")
-        val childFile = myFixture.addFileToProject("child_cycle.txt", "child content")
-
-        val rootUrl = rootFile.virtualFile.url
-        val childUrl = childFile.virtualFile.url
-
-        // Create a cycle: root -> child, and child -> root
-        val fileMapping = mapOf(
-            rootUrl to rootFile,
-            childUrl to childFile
+    fun `test getFilesAsync ignores unopened files even when search returns reference`() {
+        val fileD = myFixture.addFileToProject(
+            "src/r/D.java",
+            """
+            package r;
+            public class D { }
+            """.trimIndent()
         )
-        val urlRelations = mapOf(
-            rootUrl to setOf(childUrl),
-            childUrl to setOf(rootUrl)
+        val fileC = myFixture.addFileToProject(
+            "src/r/C.java",
+            """
+            package r;
+            public class C { }
+            """.trimIndent()
         )
 
-        val fakeService = createFakeService(fileMapping, urlRelations)
-        val psiCrawler = PsiCrawler(mockProject, fakeService)
+        openInEditor(fileC as PsiFile)
 
-        // With a cycle, even requesting a higher offset should only return the two distinct files.
-        val result = psiCrawler.getFiles(rootFile, offset = 3)
-        assertEquals(2, result.size)
+        val fakeRef = mockk<PsiReference>(relaxed = true)
+        every { fakeRef.resolve() } returns fileD
+        every { fakeRef.element } returns fileD
 
-        val expectedUrls = setOf(rootUrl, childUrl)
-        val resultUrls = result.map { it.virtualFile.url }.toSet()
-        assertEquals(expectedUrls, resultUrls)
+        every {
+            ReferencesSearch.search(any<PsiElement>(), any(), any())
+        } returns object : Query<PsiReference> {
+            override fun findFirst(): PsiReference? = fakeRef
+            override fun findAll(): MutableCollection<PsiReference> = mutableListOf(fakeRef)
+            override fun forEach(consumer: Processor<in PsiReference>): Boolean =
+                findAll().all { consumer.process(it) }
+        }
+
+        val crawler = PsiCrawler.getInstance(project)
+        val future = crawler.getFilesAsync(fileC)
+        val related = future.get(5, TimeUnit.SECONDS)
+
+        assertTrue(related.isEmpty())
     }
 
-    fun `test caching behavior`() {
-        val rootFile = myFixture.addFileToProject("root_cache.txt", "cache content")
-        val child1 = myFixture.addFileToProject("child1_cache.txt", "child1 cache content")
-        val child2 = myFixture.addFileToProject("child2_cache.txt", "child2 cache content")
-
-        val rootUrl = rootFile.virtualFile.url
-        val child1Url = child1.virtualFile.url
-        val child2Url = child2.virtualFile.url
-
-        val fileMapping = mapOf(
-            rootUrl to rootFile,
-            child1Url to child1,
-            child2Url to child2
-        )
-        val urlRelations = mapOf(
-            rootUrl to setOf(child1Url, child2Url)
+    fun `test getFilesAsync with no search results returns empty`() {
+        val fileE = myFixture.addFileToProject(
+            "src/s/E.java",
+            """
+            package s;
+            public class E { public void foo() { int x = 0; } }
+            """.trimIndent()
         )
 
-        val fakeService = createFakeService(fileMapping, urlRelations)
-        val psiCrawler = PsiCrawler(mockProject, fakeService)
+        openInEditor(fileE as PsiFile)
 
-        // First invocation caches the result.
-        val result1 = psiCrawler.getFiles(rootFile, offset = 2)
-        // Second invocation should retrieve the cached result.
-        val result2 = psiCrawler.getFiles(rootFile, offset = 2)
-        assertSame("The results should be cached and be the same instance", result1, result2)
+        every {
+            ReferencesSearch.search(any<PsiElement>(), any(), any())
+        } returns object : Query<PsiReference> {
+            override fun findFirst(): PsiReference? = null
+            override fun findAll(): MutableCollection<PsiReference> = mutableListOf()
+            override fun forEach(consumer: Processor<in PsiReference>): Boolean = true
+        }
+
+        val crawler = PsiCrawler.getInstance(project)
+        val future = crawler.getFilesAsync(fileE)
+        val related = future.get(5, TimeUnit.SECONDS)
+
+        assertTrue(related.isEmpty())
     }
 
-    fun `test ignoring missing valid file`() {
-        val rootFile = myFixture.addFileToProject("root_invalid.txt", "root content")
-        val rootUrl = rootFile.virtualFile.url
-        val missingUrl = "file://missing_child.txt"
-
-        // Only the root file exists in the mapping.
-        val fileMapping = mapOf(
-            rootUrl to rootFile
-        )
-        // The relation points to a missing file.
-        val urlRelations = mapOf(
-            rootUrl to setOf(missingUrl)
+    fun `test getFilesAsync does not include the original file even if search finds it`() {
+        val fileH = myFixture.addFileToProject(
+            "src/q/H.java",
+            """
+            package q;
+            public class H { }
+            """.trimIndent()
         )
 
-        val fakeService = createFakeService(fileMapping, urlRelations)
-        val psiCrawler = PsiCrawler(mockProject, fakeService)
+        val fileG = myFixture.addFileToProject(
+            "src/q/G.java",
+            """
+            package q;
+            public class G { }
+            """.trimIndent()
+        )
 
-        // With an invalid child, only the root file is returned.
-        val result = psiCrawler.getFiles(rootFile, offset = 3)
-        assertEquals(1, result.size)
+        openInEditor(fileG as PsiFile)
+        openInEditor(fileH as PsiFile)
 
-        val expectedUrls = setOf(rootUrl)
-        val resultUrls = result.map { it.virtualFile.url }.toSet()
-        assertEquals(expectedUrls, resultUrls)
+        val fakeRefG = mockk<PsiReference>(relaxed = true)
+        every { fakeRefG.resolve() } returns fileG
+        every { fakeRefG.element } returns fileG
+
+        val fakeRefH = mockk<PsiReference>(relaxed = true)
+        every { fakeRefH.resolve() } returns fileH
+        every { fakeRefH.element } returns fileH
+
+        every {
+            ReferencesSearch.search(any<PsiElement>(), any(), any())
+        } returns object : Query<PsiReference> {
+            override fun findFirst(): PsiReference? = fakeRefG
+            override fun findAll(): MutableCollection<PsiReference> = mutableListOf(fakeRefG, fakeRefH)
+            override fun forEach(consumer: Processor<in PsiReference>): Boolean =
+                findAll().all { consumer.process(it) }
+        }
+
+        val crawler = PsiCrawler.getInstance(project)
+        val future = crawler.getFilesAsync(fileG)
+        val related = future.get(5, TimeUnit.SECONDS)
+
+        assertEquals(1, related.size)
+        assertEquals(fileH.virtualFile.url, related.first().virtualFile.url)
     }
 }
