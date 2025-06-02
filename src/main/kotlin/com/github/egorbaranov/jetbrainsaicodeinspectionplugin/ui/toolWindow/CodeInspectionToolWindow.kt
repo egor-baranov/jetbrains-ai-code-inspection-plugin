@@ -53,7 +53,6 @@ class CodeInspectionToolWindow(
 
     private val tasks = mutableListOf<Task>()
 
-
     init {
         rootPanel = createScrollableContent()
         toolWindow.component.add(rootPanel)

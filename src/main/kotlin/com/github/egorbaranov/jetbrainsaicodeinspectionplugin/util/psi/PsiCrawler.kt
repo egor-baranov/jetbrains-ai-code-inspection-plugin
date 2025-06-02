@@ -1,11 +1,13 @@
 package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.util.psi
 
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectFileIndex
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
@@ -20,7 +22,12 @@ import java.util.concurrent.CompletableFuture
 @Service(Service.Level.PROJECT)
 class PsiCrawler(
     private val project: Project
-) {
+): Disposable {
+
+    private val disposable: Disposable = Disposer.newDisposable("PsiCrawlerDisposable").also {
+        Disposer.register(this, it)
+    }
+
     /**
      * Asynchronously computes the set of related PsiFiles.
      * Returns a CompletableFuture by adapting IntelliJ's CancellablePromise.
@@ -57,7 +64,7 @@ class PsiCrawler(
             related.toList()
         }
             .coalesceBy(this, file)
-            .expireWith(project)
+            .expireWith(disposable)
             .submit(AppExecutorUtil.getAppExecutorService())
 
         return promiseToFuture(promise)
@@ -82,6 +89,10 @@ class PsiCrawler(
         vf != null
                 && fileIndex.isInContent(vf)
                 && FileEditorManager.getInstance(project).openFiles.contains(vf)
+
+    override fun dispose() {
+        Disposer.dispose(disposable)
+    }
 
     companion object {
         fun getInstance(project: Project): PsiCrawler = project.service()

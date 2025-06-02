@@ -14,10 +14,9 @@ class SkeletonLoadingComponent(val inspectionId: UUID) : JPanel() {
     private val animationTimer: Timer
     private var alpha = 0f
 
-
     init {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        background = JBColor(Color(0xFFFFFF), Color.GRAY) // Match IDE background
+        background = JBColor.namedColor("Panel.background", JBColor.WHITE)
         border = JBUI.Borders.emptyBottom(8)
 
         preferredSize = Dimension(
@@ -47,8 +46,17 @@ class SkeletonLoadingComponent(val inspectionId: UUID) : JPanel() {
         g2.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, overlayAlpha)
 
         val gradient = GradientPaint(
-            0f, 0f, Color(0, 0, 0, 0),
-            width * 0.4f, 0f, Color(255, 255, 255, 150),
+            0f, 0f,
+            JBColor(
+                Color(0, 0, 0, 0),
+                Color(0, 0, 0, 0)
+            ),
+            width * 0.4f,
+            0f,
+            JBColor(
+                Color(255, 255, 255, 150),
+                Color(255, 255, 255, 40)
+            ),
             true
         )
 
@@ -63,5 +71,9 @@ class SkeletonLoadingComponent(val inspectionId: UUID) : JPanel() {
 
     fun stopAnimation() {
         animationTimer.stop()
+    }
+
+    companion object {
+        private val WIDTH = JBUI.scale(200)
     }
 }
