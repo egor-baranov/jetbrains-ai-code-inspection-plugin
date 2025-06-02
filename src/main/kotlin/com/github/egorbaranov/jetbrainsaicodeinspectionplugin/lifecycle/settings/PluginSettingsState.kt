@@ -14,7 +14,7 @@ class PluginSettingsState : PersistentStateComponent<PluginSettingsState> {
     var apiKey: String = ""
     var apiUrl: String = DEFAULT_API_URL
 
-    var retryQuantity: Int = 0
+    var retryQuantity: Int = 1
     var indexingSteps: Int = 1
 
     override fun getState(): PluginSettingsState = this

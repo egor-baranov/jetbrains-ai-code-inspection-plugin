@@ -69,7 +69,7 @@ class OpenAIClient(
     ): List<InspectionService.CodeFile> {
         return codeFiles.mapNotNull { codeFile ->
             try {
-                val maxAttempts = PluginSettingsState.getInstance().retryQuantity + 1
+                val maxAttempts = PluginSettingsState.getInstance().retryQuantity
                 var attempts = 0
                 var validFixFound = false
                 var fixedContent = codeFile.content

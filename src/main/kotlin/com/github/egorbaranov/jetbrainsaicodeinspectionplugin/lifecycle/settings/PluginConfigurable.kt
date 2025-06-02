@@ -11,6 +11,7 @@ import com.intellij.openapi.fileChooser.FileSaverDescriptor
 import com.intellij.openapi.options.SearchableConfigurable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.ui.JBColor
@@ -35,6 +36,9 @@ class PluginConfigurable : SearchableConfigurable {
 
     private lateinit var apiKeyField: JBTextField
     private lateinit var apiUrlField: JBTextField
+
+    private var retryQuantityDropdown = ComboBox(arrayOf(1, 3, 5, 10, 20))
+    private var indexingStepsDropdown = ComboBox(arrayOf(1, 2, 3))
 
 
     override fun getId(): String = "my.plugin.settings"
@@ -217,7 +221,11 @@ class PluginConfigurable : SearchableConfigurable {
                 }
 
                 row("Retry quantity") {
-                    comboBox(listOf(0, 1, 2, 3))
+                    cell(retryQuantityDropdown)
+                }
+
+                row("Indexing steps") {
+                    cell(indexingStepsDropdown)
                 }
 
                 row {
@@ -329,19 +337,24 @@ class PluginConfigurable : SearchableConfigurable {
     override fun isModified(): Boolean {
         val settings = PluginSettingsState.getInstance()
         return apiKeyField.text != settings.apiKey ||
-                apiUrlField.text != settings.apiUrl
+                apiUrlField.text != settings.apiUrl ||
+                retryQuantityDropdown.item != settings.retryQuantity
     }
 
     override fun apply() {
         val settings = PluginSettingsState.getInstance()
         settings.apiKey = apiKeyField.text
         settings.apiUrl = apiUrlField.text.takeIf { it.isNotEmpty() } ?: PluginSettingsState.DEFAULT_API_URL
+        settings.retryQuantity = retryQuantityDropdown.item
+        settings.indexingSteps = indexingStepsDropdown.item
     }
 
     override fun reset() {
         val settings = PluginSettingsState.getInstance()
         apiKeyField.text = settings.apiKey
         apiUrlField.text = settings.apiUrl
+        retryQuantityDropdown.item = settings.retryQuantity
+        indexingStepsDropdown.item = settings.indexingSteps
     }
 
     private fun buildStatPanel(titleText: String, mainText: String): JPanel {
