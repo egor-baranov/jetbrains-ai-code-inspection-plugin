@@ -96,8 +96,7 @@ class OpenAIClient(
                         5. IF YOU CAN'T APPLY INSTRUCTIONS TO A FILE JUST RETURN IT UNCHANGED
 
                         VIOLATIONS WILL CAUSE AUTOMATIC REJECTION
-                    """.trimIndent()
-                            ),
+                    """.trimIndent()),
                             Message(
                                 role = "user",
                                 content = """

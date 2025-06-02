@@ -14,6 +14,7 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.util.Disposer
@@ -49,6 +50,8 @@ class CodeInspectionToolWindow(
         it.toolTipText = "Inspection offset"
         it.selectedIndex = 1
     }
+
+    private val tasks = mutableListOf<Task>()
 
 
     init {
@@ -177,10 +180,19 @@ class CodeInspectionToolWindow(
             onComplete = {
                 onComplete.run()
             },
+            onCancel = { task -> tasks.remove(task) },
             onError = { }
         )
 
+        tasks.add(task)
         ProgressManager.getInstance().run(task)
+    }
+
+    private fun cancelAllTasks() {
+        synchronized(tasks) {
+            tasks.forEach { it.onCancel() }
+            tasks.clear()
+        }
     }
 
     private fun buildToolbar(): JPanel {
@@ -210,6 +222,7 @@ class CodeInspectionToolWindow(
                 object : MouseAdapter() {
                     override fun mouseClicked(e: MouseEvent?) {
                         MetricService.getInstance(project).collect(Metric.MetricID.INTERRUPT)
+                        cancelAllTasks()
                         InspectionService.getInstance(project).cancelAllTasks()
                     }
                 }
