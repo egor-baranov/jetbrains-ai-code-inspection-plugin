@@ -3,6 +3,8 @@ package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.services.metrics
 import com.intellij.openapi.components.*
 import com.intellij.openapi.project.Project
 import org.jdom.Element
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 
 @State(
     name = "MetricService",
@@ -56,9 +58,7 @@ class MetricService : PersistentStateComponent<Element> {
 
                 metrics.add(Metric(id, params, timestamp))
             } catch (e: Exception) {
-                // Handle invalid entries
-//                project.messageBus.syncPublisher(MetricsNotifier.TOPIC)
-//                    .onMetricError("Failed to load metric: ${e.message}")
+                logger.warn("Failed to load metric: ${e.message}")
             }
         }
     }
@@ -90,6 +90,8 @@ class MetricService : PersistentStateComponent<Element> {
     }
 
     companion object {
+        val logger: Logger = LoggerFactory.getLogger(MetricService::class.java)
+
         fun getInstance(project: Project): MetricService {
             return project.service()
         }

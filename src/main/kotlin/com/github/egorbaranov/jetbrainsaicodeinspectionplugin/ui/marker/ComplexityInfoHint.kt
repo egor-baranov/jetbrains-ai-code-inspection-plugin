@@ -17,7 +17,7 @@ class ComplexityInfoHint(anchor: PsiElement, textRange: TextRange): LineMarkerIn
     anchor,
     textRange,
     AllIcons.Actions.EnableNewUi,
-    { _ -> "Complexity Info Hint" },
+    { _ -> "Complexity info hint" },
     getCommonNavigationHandler(),
     GutterIconRenderer.Alignment.LEFT,
     Supplier<String> { "" }

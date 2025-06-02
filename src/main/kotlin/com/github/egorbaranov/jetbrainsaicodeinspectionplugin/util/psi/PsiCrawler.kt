@@ -26,7 +26,6 @@ class PsiCrawler(
      * Returns a CompletableFuture by adapting IntelliJ's CancellablePromise.
      */
     fun getFilesAsync(file: PsiFile): CompletableFuture<List<PsiFile>> {
-        // non-blocking read action returning a CancellablePromise
         val promise: CancellablePromise<List<PsiFile>> = ReadAction.nonBlocking<List<PsiFile>> {
             val related = mutableSetOf<PsiFile>()
             val fileIndex = ProjectFileIndex.getInstance(project)

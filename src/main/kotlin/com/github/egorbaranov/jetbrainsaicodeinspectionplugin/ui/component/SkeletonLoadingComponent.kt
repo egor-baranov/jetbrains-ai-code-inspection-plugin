@@ -3,9 +3,8 @@ package com.github.egorbaranov.jetbrainsaicodeinspectionplugin.ui.component
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
 import java.awt.*
-import java.util.UUID
+import java.util.*
 import javax.swing.BoxLayout
-import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.Timer
 import kotlin.math.sin
@@ -22,7 +21,7 @@ class SkeletonLoadingComponent(val inspectionId: UUID) : JPanel() {
         border = JBUI.Borders.emptyBottom(8)
 
         preferredSize = Dimension(
-            JComponent.WIDTH,
+            WIDTH,
             JBUI.scale(44)
         )
 

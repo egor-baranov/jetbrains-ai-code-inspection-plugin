@@ -68,14 +68,14 @@ class PluginConfigurable : SearchableConfigurable {
             it.params[Metric.MetricParams.LINES_APPLIED.str]?.toInt() ?: 0
         }
 
-        val approveRate = metrics?.let {
-            it.count {
-                it.id == Metric.MetricID.APPLY_FIX
+        val approveRate = metrics?.let { metric ->
+            metric.count { e ->
+                e.id == Metric.MetricID.APPLY_FIX
             }.toFloat() * 100 /
-                    it.count {
-                        it.id == Metric.MetricID.APPLY_FIX ||
-                                it.id == Metric.MetricID.IGNORE_FIX ||
-                                it.id == Metric.MetricID.DELETE_INSPECTION
+                    metric.count { e ->
+                        e.id == Metric.MetricID.APPLY_FIX ||
+                                e.id == Metric.MetricID.IGNORE_FIX ||
+                                e.id == Metric.MetricID.DELETE_INSPECTION
                     }
         }?.toInt() ?: 100
 

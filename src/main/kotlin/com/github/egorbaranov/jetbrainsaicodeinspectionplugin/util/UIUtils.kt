@@ -7,6 +7,7 @@ import javax.swing.border.AbstractBorder
 import javax.swing.border.Border
 
 object UIUtils {
+
     fun createRoundedBorder(): Border {
         return object : AbstractBorder() {
             private val arc = JBUI.scale(16)
