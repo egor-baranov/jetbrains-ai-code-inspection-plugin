@@ -48,6 +48,6 @@ Behind the scenes, it leverages a smart, efficient inspection engine that crawls
 
 
 
-![img_1.png](img_1.png)
+<img width="1094" alt="image" src="https://github.com/user-attachments/assets/c29cd8d3-39ae-467e-aaf2-629b6f658252" />
 
 <!-- Plugin description end -->
