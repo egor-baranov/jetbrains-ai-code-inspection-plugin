@@ -117,7 +117,7 @@ class OpenAIClientTest : BasePlatformTestCase() {
         val result = openAIClient.performFix(inspection, listOf(codeFile))
 
         assertTrue(result.isEmpty())
-        verify(exactly = 3) { mockRestApiClient.executeRequest(any(), any()) }
+        verify(exactly = 2) { mockRestApiClient.executeRequest(any(), any()) }
     }
 
     fun `test processToolCalls should map tool calls to actions`() {
