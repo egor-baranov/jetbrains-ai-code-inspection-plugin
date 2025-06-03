@@ -220,11 +220,10 @@ class PluginConfigurable : SearchableConfigurable {
                     )
                 }
 
-                row("Retry quantity") {
+                row {
+                    cell(label("Retry quantity").component)
                     cell(retryQuantityDropdown)
-                }
-
-                row("Indexing steps") {
+                    cell(label("Indexing steps").component)
                     cell(indexingStepsDropdown)
                 }
 
