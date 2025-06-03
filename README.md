@@ -17,7 +17,7 @@ Behind the scenes, it leverages a smart, efficient inspection engine that crawls
 ## What can it do?
 
 
-* Cross-file inspection results that highlight deeply nested or smelly logic
+* Cross-file inspection results that highlight deeply nested or complex logic
 
 * Clear, AI-generated fix suggestions tailored to each inspection
 
